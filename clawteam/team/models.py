@@ -154,6 +154,9 @@ class WorkerCodingCallbackReport(BaseModel):
     schema_version: int = Field(default=PERSISTED_CALLBACK_SCHEMA_VERSION, alias="schemaVersion", ge=1)
     task_id: str | None = Field(default=None, alias="taskId")
     job_id: str = Field(alias="jobId")
+    session_id: str | None = Field(default=None, alias="sessionId")
+    provider_session_id: str | None = Field(default=None, alias="providerSessionId")
+    worker_name: str | None = Field(default=None, alias="workerName")
     provider: str
     status: str
     decision: WorkerCodingDecision
@@ -169,6 +172,9 @@ class WorkerCodingCallbackReport(BaseModel):
         *,
         task_id: str | None,
         job_id: str,
+        session_id: str | None = None,
+        provider_session_id: str | None = None,
+        worker_name: str | None = None,
         provider: str,
         status: str,
         decision: WorkerCodingDecision,
@@ -180,6 +186,9 @@ class WorkerCodingCallbackReport(BaseModel):
         return cls(
             taskId=task_id,
             jobId=job_id,
+            sessionId=session_id,
+            providerSessionId=provider_session_id,
+            workerName=worker_name,
             provider=provider,
             status=status,
             decision=decision,

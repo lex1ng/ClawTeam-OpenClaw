@@ -6,6 +6,7 @@ import pytest
 
 from clawteam.team.models import TaskItem, TaskStatus, WorkerCodingCallbackReport, WorkerCodingDecision
 from clawteam.team.tasks import TaskLockError, TaskStore
+from clawteam.runtime_console import RuntimeConsoleStore
 
 
 @pytest.fixture
@@ -318,6 +319,7 @@ class TestCodingCallbackMetadata:
         report = WorkerCodingCallbackReport(
             taskId=task.id,
             jobId="job-1",
+            sessionId="psess-job-1",
             provider="claude",
             status="completed",
             decision=WorkerCodingDecision.report_progress,
@@ -332,3 +334,6 @@ class TestCodingCallbackMetadata:
         assert updated.metadata["coding"]["decision"] == "report_progress"
         assert updated.metadata["codingHistory"][0]["schemaVersion"] == 1
         assert updated.metadata["codingHistory"][0]["jobId"] == "job-1"
+        callback = RuntimeConsoleStore().load_callback_report(store.team_name, "job-1")
+        assert callback is not None
+        assert callback.session_id == "psess-job-1"

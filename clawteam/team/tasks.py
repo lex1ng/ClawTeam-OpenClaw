@@ -274,6 +274,12 @@ class TaskStore:
             task.metadata["codingHistory"] = history
             task.updated_at = _now_iso()
             self._save_unlocked(task)
+            try:
+                from clawteam.coding.service import CodingService
+
+                CodingService().record_callback_report(self.team_name, report)
+            except Exception:
+                pass
             return task
 
     def _save_unlocked(self, task: TaskItem) -> None:

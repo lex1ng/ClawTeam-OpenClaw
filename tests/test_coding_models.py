@@ -10,6 +10,7 @@ from clawteam.coding.models import (
     ACTIVE_CODING_JOB_STATES,
     CODING_CONTROL_COMMANDS,
     CodingAttemptKind,
+    CodingCallbackStatus,
     CodingControlCommand,
     CodingEventType,
     CodingExecRequest,
@@ -18,6 +19,7 @@ from clawteam.coding.models import (
     CodingJobRecord,
     CodingJobState,
     CodingProvider,
+    CodingSessionMode,
     ResolvedStartupPolicy,
     build_replay_lineage,
     build_retry_lineage,
@@ -314,6 +316,8 @@ class TestEventAndControlSurface:
 
         assert record.schema_version == 1
         assert dumped["schemaVersion"] == 1
+        assert record.session_mode == CodingSessionMode.ephemeral
+        assert record.callback_status == CodingCallbackStatus.not_applicable
 
     def test_control_plane_surface_is_stable(self):
         assert CODING_CONTROL_COMMANDS == (

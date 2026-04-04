@@ -18,6 +18,7 @@ from clawteam.coding.models import (
 from clawteam.coding.registry import CodingHarnessRegistry
 from clawteam.coding.service import CodingJobConflictError, CodingJobNotFoundError, CodingService
 from clawteam.coding.store import CodingJobStore
+from clawteam.runtime_console import RuntimeConsoleStore
 
 
 def _request(**overrides) -> CodingExecRequest:
@@ -51,7 +52,15 @@ class TestCodingService:
         assert record.requested_cwd is None
         assert record.effective_cwd == "/tmp/worktree"
         assert record.startup_policy.applied_flags == ["--dangerously-skip-permissions"]
+        assert record.provider_session_ref == "psess-job-fixed"
+        assert record.provider_session_id is None
+        assert record.session_mode.value == "ephemeral"
         assert Path(record.artifact_paths["jobRecord"]).exists()
+        provider_session = RuntimeConsoleStore().get_provider_session("alpha", "psess-job-fixed")
+        assert provider_session is not None
+        assert provider_session.provider_session_id is None
+        assert provider_session.session_mode.value == "ephemeral"
+        assert provider_session.resume_supported is False
         events = service.store.list_events("alpha", "job-fixed")
         assert [event.event_type.value for event in events] == ["created"]
 

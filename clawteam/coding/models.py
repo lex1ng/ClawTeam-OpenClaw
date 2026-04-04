@@ -68,6 +68,21 @@ class CodingDecision(str, Enum):
     blocked = "blocked"
 
 
+class CodingSessionMode(str, Enum):
+    attached = "attached"
+    ephemeral = "ephemeral"
+
+
+class CodingCallbackStatus(str, Enum):
+    not_applicable = "not_applicable"
+    pending = "pending"
+    reported = "reported"
+    continue_with_provider = "continue_with_provider"
+    escalated_to_leader = "escalated_to_leader"
+    blocked_waiting_decision = "blocked_waiting_decision"
+    closed = "closed"
+
+
 class CodingAttemptKind(str, Enum):
     initial = "initial"
     retry = "retry"
@@ -325,6 +340,12 @@ class CodingJobRecord(BaseModel):
     leader_name: str | None = Field(default=None, alias="leaderName")
     task_id: str | None = Field(default=None, alias="taskId")
     provider: CodingProvider
+    provider_session_ref: str | None = Field(default=None, alias="providerSessionRef")
+    provider_session_id: str | None = Field(default=None, alias="providerSessionId")
+    session_mode: CodingSessionMode = Field(
+        default=CodingSessionMode.ephemeral,
+        alias="sessionMode",
+    )
     mode: CodingExecMode = CodingExecMode.implement
     state: CodingJobState
     requested_cwd: str | None = Field(default=None, alias="requestedCwd")
@@ -347,6 +368,12 @@ class CodingJobRecord(BaseModel):
     attempt_kind: CodingAttemptKind = Field(default=CodingAttemptKind.initial, alias="attemptKind")
     retry_count: int = Field(default=0, alias="retryCount", ge=0)
     replay_count: int = Field(default=0, alias="replayCount", ge=0)
+    callback_status: CodingCallbackStatus = Field(
+        default=CodingCallbackStatus.not_applicable,
+        alias="callbackStatus",
+    )
+    callback_decision: CodingDecision | None = Field(default=None, alias="callbackDecision")
+    callback_reported_at: str | None = Field(default=None, alias="callbackReportedAt")
 
     @model_validator(mode="after")
     def validate_paths_and_lineage(self) -> CodingJobRecord:

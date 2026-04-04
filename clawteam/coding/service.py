@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from clawteam.coding.models import (
     ACTIVE_CODING_JOB_STATES,
     CodingAttemptKind,
+    CodingCallbackStatus,
+    CodingDecision,
     CodingEventType,
     CodingExecRequest,
     CodingExecResult,
@@ -25,6 +27,10 @@ from clawteam.coding.models import (
 from clawteam.coding.harness.base import HarnessArtifact, HarnessExecution
 from clawteam.coding.registry import CodingHarnessRegistry, build_default_registry
 from clawteam.coding.store import CodingJobStore
+from clawteam.runtime_console.service import RuntimeConsoleService
+
+if TYPE_CHECKING:
+    from clawteam.team.models import WorkerCodingCallbackReport
 
 
 def _now_iso() -> str:
@@ -64,9 +70,11 @@ class CodingService:
         self,
         store: CodingJobStore | None = None,
         registry: CodingHarnessRegistry | None = None,
+        runtime_console: RuntimeConsoleService | None = None,
     ):
         self.store = store or CodingJobStore()
         self.registry = registry or build_default_registry()
+        self.runtime_console = runtime_console or RuntimeConsoleService()
 
     def resolve_startup_policy(
         self,
@@ -111,6 +119,9 @@ class CodingService:
             leaderName=request.leader_name,
             taskId=request.task_id,
             provider=request.provider,
+            providerSessionRef=f"psess-{job_id}",
+            providerSessionId=None,
+            sessionMode="ephemeral",
             mode=request.mode,
             state=CodingJobState.queued,
             requestedCwd=request.cwd,
@@ -127,6 +138,7 @@ class CodingService:
             created_event=self._event_for_record(record, CodingEventType.created),
             ensure_capacity=lambda jobs: self._ensure_v1_capacity(request, existing_jobs=jobs),
         )
+        self._best_effort_sync_runtime_console("initialize_for_job", record)
         return record
 
     def mark_running(self, team_name: str, job_id: str) -> CodingJobRecord:
@@ -142,6 +154,7 @@ class CodingService:
         )
         self.store.save_job(updated)
         self.store.append_event(self._event_for_record(updated, CodingEventType.started))
+        self._best_effort_sync_runtime_console("mark_job_running", updated)
         return updated
 
     def complete_job(
@@ -174,6 +187,7 @@ class CodingService:
         )
         self.store.save_job(updated)
         self.store.append_event(self._event_for_record(updated, self._event_type_for_state(result.status)))
+        self._best_effort_sync_runtime_console("mark_job_terminal", updated)
         return updated
 
     def create_retry_job(
@@ -279,6 +293,29 @@ class CodingService:
         request = CodingExecRequest.model_validate(previous.request)
         record = self.create_replay_job(team_name, job_id, job_id_factory=job_id_factory)
         return self._execute_prepared_job(record, request)
+
+    def record_callback_report(
+        self,
+        team_name: str,
+        report: WorkerCodingCallbackReport,
+    ) -> CodingJobRecord:
+        self.runtime_console.record_callback(team_name=team_name, report=report)
+        record = self.store.get_job(team_name, report.job_id)
+        if record is None:
+            raise CodingJobNotFoundError(
+                f"Coding job '{report.job_id}' not found for team '{team_name}'"
+            )
+        now = _now_iso()
+        updated = record.model_copy(
+            update={
+                "callback_status": self._callback_status_for_decision(report.decision.value),
+                "callback_decision": CodingDecision(report.decision.value),
+                "callback_reported_at": report.reported_at,
+                "updated_at": now,
+            }
+        )
+        self.store.save_job(updated)
+        return updated
 
     def cancel_job(self, team_name: str, job_id: str, *, reason: str = "") -> CodingJobRecord:
         record = self.require_job(team_name, job_id)
@@ -570,5 +607,26 @@ class CodingService:
         try:
             self.store.save_job(updated)
             self.store.append_event(self._event_for_record(updated, CodingEventType.failed))
+            self._best_effort_sync_runtime_console("mark_job_terminal", updated)
         except Exception:
             pass
+
+    def _best_effort_sync_runtime_console(
+        self,
+        action: str,
+        record: CodingJobRecord,
+    ) -> None:
+        try:
+            getattr(self.runtime_console, action)(record)
+        except Exception:
+            pass
+
+    def _callback_status_for_decision(self, decision: str) -> CodingCallbackStatus:
+        mapping = {
+            "continue": CodingCallbackStatus.continue_with_provider,
+            "report_progress": CodingCallbackStatus.reported,
+            "escalate": CodingCallbackStatus.escalated_to_leader,
+            "complete": CodingCallbackStatus.closed,
+            "blocked": CodingCallbackStatus.blocked_waiting_decision,
+        }
+        return mapping[decision]

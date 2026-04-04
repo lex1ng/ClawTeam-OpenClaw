@@ -1300,6 +1300,20 @@ def _resolve_coding_team(team: Optional[str]) -> str:
     return team_name
 
 
+def _print_error(message: str) -> None:
+    _output({"error": message}, lambda d: console.print(f"[red]{d['error']}[/red]"))
+
+
+def _display_or(value, fallback: str = "unavailable") -> str:
+    if value in (None, "", [], {}):
+        return fallback
+    return str(value)
+
+
+def _bool_label(value: bool) -> str:
+    return "yes" if value else "no"
+
+
 def _coding_result_human(data: dict):
     console.print(
         f"Job: [cyan]{data['jobId']}[/cyan]  "
@@ -1329,6 +1343,9 @@ def _coding_record_human(data: dict):
     console.print(f"Worker: {data['workerName']} ({data['workerId']})")
     console.print(f"Task: {data.get('taskId') or '-'}")
     console.print(f"Leader: {data.get('leaderName') or '-'}")
+    console.print(f"Provider Session Ref: {data.get('providerSessionRef') or '-'}")
+    console.print(f"Provider Session ID: {_display_or(data.get('providerSessionId'))}")
+    console.print(f"Session Mode: {data.get('sessionMode') or 'unknown'}")
     console.print(
         "Attempt: "
         f"{data.get('attemptKind', '-')}  "
@@ -1348,13 +1365,209 @@ def _coding_record_human(data: dict):
     )
     console.print(f"Applied Flags: {json.dumps(applied_flags, ensure_ascii=False)}")
     console.print(f"Extra Args: {json.dumps(extra_args, ensure_ascii=False)}")
-    console.print(f"Created: {data['createdAt']}  Updated: {data['updatedAt']}")
+    console.print(f"Callback Status: {data.get('callbackStatus') or 'not_applicable'}")
+    console.print(f"Callback Decision: {data.get('callbackDecision') or '-'}")
+    console.print(f"Callback Reported At: {data.get('callbackReportedAt') or '-'}")
+    console.print(
+        f"Created: {data['createdAt']}  "
+        f"Started: {data.get('startedAt') or '-'}  "
+        f"Updated: {data['updatedAt']}  "
+        f"Finished: {data.get('finishedAt') or '-'}"
+    )
     if data.get("summary"):
         console.print(f"Summary: {data['summary']}")
     if data.get("error"):
         console.print(f"Error: [red]{data['error']}[/red]")
     if data.get("artifactPaths"):
         console.print(f"Artifacts: {json.dumps(data['artifactPaths'], ensure_ascii=False)}")
+
+
+def _coding_list_human(data: dict):
+    table = Table(title=f"Coding Jobs ({data['teamName']})")
+    table.add_column("Job", style="cyan")
+    table.add_column("State")
+    table.add_column("Task")
+    table.add_column("Worker")
+    table.add_column("Provider")
+    table.add_column("Attempt")
+    table.add_column("Session")
+    table.add_column("Callback")
+    table.add_column("Updated", style="dim")
+    for record in data["jobs"]:
+        table.add_row(
+            record["jobId"],
+            record["state"],
+            record.get("taskId") or "-",
+            record["workerName"],
+            record["provider"],
+            f"{record.get('attemptKind', '-')}"
+            f" r{record.get('retryCount', 0)}"
+            f"/p{record.get('replayCount', 0)}",
+            _display_or(record.get("providerSessionId"), record.get("sessionMode", "unavailable")),
+            record.get("callbackStatus") or "not_applicable",
+            record["updatedAt"],
+        )
+    console.print(table)
+    if data.get("faults"):
+        console.print(f"[yellow]Faults: {len(data['faults'])} durable read issue(s) detected[/yellow]")
+
+
+def _coding_events_human(data: dict):
+    table = Table(title=f"Coding Events ({data['jobId']})")
+    table.add_column("Time", style="dim")
+    table.add_column("Type")
+    table.add_column("State")
+    table.add_column("Attempt")
+    table.add_column("Summary")
+    for event in data["events"]:
+        table.add_row(
+            event["createdAt"],
+            event["eventType"],
+            event.get("state") or "-",
+            f"{event.get('attemptKind', '-')}"
+            f" r{event.get('retryCount', 0)}"
+            f"/p{event.get('replayCount', 0)}",
+            event.get("summary") or "-",
+        )
+    console.print(table)
+
+
+def _coding_artifacts_human(data: dict):
+    table = Table(title=f"Coding Artifacts ({data['jobId']})")
+    table.add_column("Name", style="cyan")
+    table.add_column("Exists")
+    table.add_column("Bytes")
+    table.add_column("Path")
+    for artifact in data["artifacts"]:
+        table.add_row(
+            artifact["name"],
+            _bool_label(artifact["exists"]),
+            str(artifact["sizeBytes"]) if artifact["sizeBytes"] is not None else "-",
+            artifact["path"],
+        )
+    console.print(table)
+
+
+def _coding_artifact_human(data: dict):
+    console.print(f"Artifact: [cyan]{data['name']}[/cyan]  Exists: {_bool_label(data['exists'])}")
+    console.print(f"Path: {data['path']}")
+    if data.get("sizeBytes") is not None:
+        console.print(f"Bytes: {data['sizeBytes']}")
+    console.print(f"Binary: {_bool_label(data.get('isBinary', False))}")
+    if data.get("content") is not None:
+        console.print(data["content"], end="" if data["content"].endswith("\n") else "\n")
+
+
+def _coding_session_list_human(data: dict):
+    table = Table(title=f"Provider Sessions ({data['teamName']})")
+    table.add_column("Session", style="cyan")
+    table.add_column("Provider")
+    table.add_column("State")
+    table.add_column("Mode")
+    table.add_column("Provider ID")
+    table.add_column("Worker")
+    table.add_column("Current Job")
+    table.add_column("Callback")
+    for record in data["sessions"]:
+        table.add_row(
+            record["sessionId"],
+            record["provider"],
+            record["state"],
+            record["sessionMode"],
+            _display_or(record.get("providerSessionId")),
+            record["workerName"],
+            record.get("currentJobId") or "-",
+            record.get("callbackStatus") or "not_applicable",
+        )
+    console.print(table)
+
+
+def _coding_session_human(data: dict):
+    console.print(f"Session: [cyan]{data['sessionId']}[/cyan]")
+    console.print(f"Provider: {data['provider']}")
+    console.print(f"State: {data['state']}")
+    console.print(f"Provider Session ID: {_display_or(data.get('providerSessionId'))}")
+    console.print(f"Session Mode: {data['sessionMode']}")
+    console.print(f"Resume Supported: {_bool_label(data.get('resumeSupported', False))}")
+    console.print(f"Worker: {data['workerName']} ({data['workerId']})")
+    console.print(f"Agent Session: {data.get('agentSessionId') or '-'}")
+    console.print(f"Current Task: {data.get('currentTaskId') or '-'}")
+    console.print(f"Current Job: {data.get('currentJobId') or '-'}")
+    console.print(f"Last Job: {data.get('lastJobId') or '-'}")
+    console.print(f"Effective CWD: {data.get('effectiveCwd') or '-'}")
+    console.print(f"Worktree: {data.get('worktreePath') or '-'}")
+    console.print(f"Runtime CWD: {data.get('runtimeCwd') or '-'}")
+    console.print(f"Callback Status: {data.get('callbackStatus') or 'not_applicable'}")
+    console.print(f"Last Callback: {data.get('lastCallbackAt') or '-'}")
+    console.print(f"Last Activity: {data.get('lastActivityAt') or '-'}")
+    console.print(f"Updated: {data['updatedAt']}")
+
+
+def _faults_human(data: dict):
+    table = Table(title=f"Runtime Faults ({data['teamName']})")
+    table.add_column("Fault", style="cyan")
+    table.add_column("Severity")
+    table.add_column("Scope")
+    table.add_column("Status")
+    table.add_column("Message")
+    for fault in data["faults"]:
+        table.add_row(
+            fault["faultId"],
+            fault["severity"],
+            f"{fault['scopeType']}:{fault['scopeId']}",
+            fault["status"],
+            fault["message"],
+        )
+    console.print(table)
+
+
+def _fault_human(data: dict):
+    console.print(f"Fault: [cyan]{data['faultId']}[/cyan]")
+    console.print(f"Type: {data['faultType']}")
+    console.print(f"Severity: {data['severity']}")
+    console.print(f"Scope: {data['scopeType']}:{data['scopeId']}")
+    console.print(f"Status: {data['status']}")
+    console.print(f"Detected At: {data['detectedAt']}")
+    console.print(f"Message: {data['message']}")
+    if data.get("detail"):
+        console.print(f"Detail: {data['detail']}")
+    if data.get("suggestedAction"):
+        console.print(f"Suggested Action: {data['suggestedAction']}")
+
+
+def _timeline_human(data: dict):
+    table = Table(title=f"Runtime Timeline ({data['teamName']})")
+    table.add_column("Time", style="dim")
+    table.add_column("Type")
+    table.add_column("Scope")
+    table.add_column("Actor")
+    table.add_column("Summary")
+    for event in data["events"]:
+        table.add_row(
+            event["timestamp"],
+            event["eventType"],
+            f"{event['scopeType']}:{event['scopeId']}",
+            f"{event['actorType']}:{event['actorId']}",
+            event["summary"],
+        )
+    console.print(table)
+
+
+def _artifact_entries(data: dict) -> list[dict]:
+    entries = []
+    for name, raw_path in sorted((data.get("artifactPaths") or {}).items()):
+        path = Path(raw_path)
+        exists = path.exists()
+        size_bytes = path.stat().st_size if exists else None
+        entries.append(
+            {
+                "name": name,
+                "path": str(path),
+                "exists": exists,
+                "sizeBytes": size_bytes,
+            }
+        )
+    return entries
 
 
 @coding_app.command("exec")
@@ -1438,6 +1651,30 @@ def coding_exec(
     _output(_dump(result), _coding_result_human)
 
 
+@coding_app.command("list")
+def coding_list(
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """List persisted coding jobs with durable read faults surfaced explicitly."""
+    from clawteam.coding import CodingJobStore
+
+    team_name = _resolve_coding_team(team)
+    jobs, faults = CodingJobStore().inspect_jobs(team_name)
+    jobs_payload = sorted(
+        (_dump(job) for job in jobs),
+        key=lambda job: job.get("updatedAt", ""),
+        reverse=True,
+    )
+    _output(
+        {
+            "teamName": team_name,
+            "jobs": jobs_payload,
+            "faults": faults,
+        },
+        _coding_list_human,
+    )
+
+
 @coding_app.command("status")
 def coding_status(
     job_id: str = typer.Argument(..., help="Coding job id"),
@@ -1453,6 +1690,119 @@ def coding_status(
         _output({"error": str(exc)}, lambda d: console.print(f"[red]{d['error']}[/red]"))
         raise typer.Exit(1)
     _output(_dump(record), _coding_record_human)
+
+
+@coding_app.command("result")
+def coding_result(
+    job_id: str = typer.Argument(..., help="Coding job id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """Show the persisted normalized terminal result for a coding job."""
+    from clawteam.coding import CodingService
+
+    team_name = _resolve_coding_team(team)
+    service = CodingService()
+    try:
+        service.require_job(team_name, job_id)
+        result = service.store.load_result(team_name, job_id)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+    if result is None:
+        _print_error(f"Coding job '{job_id}' has no persisted result yet.")
+        raise typer.Exit(1)
+    _output(_dump(result), _coding_result_human)
+
+
+@coding_app.command("events")
+def coding_events(
+    job_id: str = typer.Argument(..., help="Coding job id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """Show durable lifecycle events for a coding job."""
+    from clawteam.coding import CodingService
+
+    team_name = _resolve_coding_team(team)
+    service = CodingService()
+    try:
+        service.require_job(team_name, job_id)
+        events = service.store.list_events(team_name, job_id)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+    _output(
+        {
+            "teamName": team_name,
+            "jobId": job_id,
+            "events": [_dump(event) for event in events],
+        },
+        _coding_events_human,
+    )
+
+
+@coding_app.command("artifacts")
+def coding_artifacts(
+    job_id: str = typer.Argument(..., help="Coding job id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """List persisted artifact paths for a coding job."""
+    from clawteam.coding import CodingService
+
+    team_name = _resolve_coding_team(team)
+    try:
+        record = CodingService().require_job(team_name, job_id)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+    _output(
+        {
+            "teamName": team_name,
+            "jobId": job_id,
+            "artifacts": _artifact_entries(_dump(record)),
+        },
+        _coding_artifacts_human,
+    )
+
+
+@coding_app.command("artifact")
+def coding_artifact(
+    job_id: str = typer.Argument(..., help="Coding job id"),
+    name: str = typer.Option(..., "--name", help="Artifact name"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """Show artifact metadata and content when the artifact is text."""
+    from clawteam.coding import CodingService
+
+    team_name = _resolve_coding_team(team)
+    try:
+        record = CodingService().require_job(team_name, job_id)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+    artifact_path = (record.artifact_paths or {}).get(name)
+    if not artifact_path:
+        _print_error(f"Coding job '{job_id}' has no artifact named '{name}'.")
+        raise typer.Exit(1)
+    path = Path(artifact_path)
+    exists = path.exists()
+    is_binary = False
+    content = None
+    if exists:
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            is_binary = True
+    payload = {
+        "teamName": team_name,
+        "jobId": job_id,
+        "name": name,
+        "path": str(path),
+        "exists": exists,
+        "sizeBytes": path.stat().st_size if exists else None,
+        "isBinary": is_binary,
+        "content": content,
+    }
+    _output(payload, _coding_artifact_human)
 
 
 @coding_app.command("wait")
@@ -1533,6 +1883,188 @@ def coding_replay(
         console.print(f"[red]{exc}[/red]")
         raise typer.Exit(1)
     _output(_dump(result), _coding_result_human)
+
+
+# Runtime Console session inspection lives under `clawteam coding session ...`
+coding_session_app = typer.Typer(help="Provider session inspection commands")
+coding_app.add_typer(coding_session_app, name="session")
+
+
+@coding_session_app.command("list")
+def coding_session_list(
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """List durable provider session records for a team."""
+    from clawteam.runtime_console import RuntimeConsoleStore
+
+    team_name = _resolve_coding_team(team)
+    try:
+        sessions = RuntimeConsoleStore().list_provider_sessions(team_name)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+    _output(
+        {
+            "teamName": team_name,
+            "sessions": [_dump(session) for session in sessions],
+        },
+        _coding_session_list_human,
+    )
+
+
+@coding_session_app.command("show")
+def coding_session_show(
+    session_id: str = typer.Argument(..., help="Runtime provider session record id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """Show one durable provider session record."""
+    from clawteam.runtime_console import RuntimeConsoleStore
+
+    team_name = _resolve_coding_team(team)
+    try:
+        record = RuntimeConsoleStore().get_provider_session(team_name, session_id)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+    if record is None:
+        _print_error(f"Provider session '{session_id}' not found for team '{team_name}'.")
+        raise typer.Exit(1)
+    _output(_dump(record), _coding_session_human)
+
+
+@coding_session_app.command("jobs")
+def coding_session_jobs(
+    session_id: str = typer.Argument(..., help="Runtime provider session record id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """List coding jobs linked to one provider session record."""
+    from clawteam.coding import CodingJobStore
+
+    team_name = _resolve_coding_team(team)
+    jobs, faults = CodingJobStore().inspect_jobs(team_name)
+    linked_jobs = [
+        _dump(job)
+        for job in sorted(jobs, key=lambda item: item.updated_at, reverse=True)
+        if job.provider_session_ref == session_id
+    ]
+    _output(
+        {
+            "teamName": team_name,
+            "sessionId": session_id,
+            "jobs": linked_jobs,
+            "faults": faults,
+        },
+        _coding_list_human,
+    )
+
+
+@coding_session_app.command("events")
+def coding_session_events(
+    session_id: str = typer.Argument(..., help="Runtime provider session record id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """Show runtime timeline events scoped to one provider session record."""
+    from clawteam.runtime_console import RuntimeConsoleStore
+
+    team_name = _resolve_coding_team(team)
+    try:
+        store = RuntimeConsoleStore()
+        session = store.get_provider_session(team_name, session_id)
+        if session is None:
+            _print_error(f"Provider session '{session_id}' not found for team '{team_name}'.")
+            raise typer.Exit(1)
+        events = [
+            _dump(event)
+            for event in store.list_timeline(team_name)
+            if event.scope_type.value == "provider_session" and event.scope_id == session_id
+        ]
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+    _output(
+        {
+            "teamName": team_name,
+            "sessionId": session_id,
+            "events": events,
+        },
+        _timeline_human,
+    )
+
+
+# ============================================================================
+# Runtime Fault / Audit Commands
+# ============================================================================
+
+faults_app = typer.Typer(help="Runtime fault inspection commands")
+app.add_typer(faults_app, name="faults")
+
+
+@faults_app.command("list")
+def faults_list(
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """List explicit persisted runtime faults."""
+    from clawteam.runtime_console import RuntimeConsoleStore
+
+    team_name = _resolve_coding_team(team)
+    try:
+        faults = RuntimeConsoleStore().list_faults(team_name)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+    _output(
+        {
+            "teamName": team_name,
+            "faults": [_dump(fault) for fault in faults],
+        },
+        _faults_human,
+    )
+
+
+@faults_app.command("show")
+def faults_show(
+    fault_id: str = typer.Argument(..., help="Runtime fault id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """Show one explicit persisted runtime fault."""
+    from clawteam.runtime_console import RuntimeConsoleStore
+
+    team_name = _resolve_coding_team(team)
+    try:
+        fault = RuntimeConsoleStore().get_fault(team_name, fault_id)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+    if fault is None:
+        _print_error(f"Runtime fault '{fault_id}' not found for team '{team_name}'.")
+        raise typer.Exit(1)
+    _output(_dump(fault), _fault_human)
+
+
+audit_app = typer.Typer(help="Runtime audit and timeline commands")
+app.add_typer(audit_app, name="audit")
+
+
+@audit_app.command("timeline")
+def audit_timeline(
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """Show the unified runtime timeline derived from durable runtime-console events."""
+    from clawteam.runtime_console import RuntimeConsoleStore
+
+    team_name = _resolve_coding_team(team)
+    try:
+        events = RuntimeConsoleStore().list_timeline(team_name)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+    _output(
+        {
+            "teamName": team_name,
+            "events": [_dump(event) for event in events],
+        },
+        _timeline_human,
+    )
 
 
 # ============================================================================
