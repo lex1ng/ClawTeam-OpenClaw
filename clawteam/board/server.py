@@ -6,6 +6,7 @@ import json
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import unquote
 
 from clawteam.board.collector import BoardCollector
 
@@ -26,12 +27,20 @@ class BoardHandler(BaseHTTPRequestHandler):
             self._serve_static("index.html", "text/html")
         elif path == "/api/overview":
             self._serve_json(self.collector.collect_overview())
+        elif path.startswith("/api/board/"):
+            team_name = path[len("/api/board/"):].strip("/")
+            if not team_name:
+                self.send_error(400, "Team name required")
+                return
+            self._serve_team(team_name)
         elif path.startswith("/api/team/"):
             team_name = path[len("/api/team/"):].strip("/")
             if not team_name:
                 self.send_error(400, "Team name required")
                 return
             self._serve_team(team_name)
+        elif path.startswith("/api/teams/"):
+            self._serve_team_api(path[len("/api/teams/"):])
         elif path.startswith("/api/events/"):
             team_name = path[len("/api/events/"):].strip("/")
             if not team_name:
@@ -67,12 +76,68 @@ class BoardHandler(BaseHTTPRequestHandler):
             data = self.collector.collect_team(team_name)
             self._serve_json(data)
         except ValueError as e:
-            body = json.dumps({"error": str(e)}).encode("utf-8")
-            self.send_response(404)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._serve_json_error(404, str(e))
+
+    def _serve_team_api(self, suffix: str):
+        parts = [unquote(part) for part in suffix.strip("/").split("/") if part]
+        if not parts:
+            self._serve_json_error(400, "Team name required")
+            return
+        team_name = parts[0]
+        route = parts[1:]
+        try:
+            if not route:
+                self._serve_json(self.collector.collect_team(team_name))
+            elif route == ["workers"]:
+                data = self.collector.collect_team(team_name)
+                self._serve_json({"teamName": team_name, "workers": data["runtimeConsole"]["workers"]})
+            elif route == ["tasks"]:
+                data = self.collector.collect_team(team_name)
+                self._serve_json(
+                    {
+                        "teamName": team_name,
+                        "summary": data["taskSummary"],
+                        "grouped": data["tasks"],
+                        "tasks": data["runtimeConsole"]["tasks"],
+                    }
+                )
+            elif route == ["coding", "jobs"]:
+                self._serve_json(self.collector.collect_coding_jobs(team_name))
+            elif len(route) == 3 and route[:2] == ["coding", "jobs"]:
+                self._serve_json(self.collector.collect_coding_job(team_name, route[2]))
+            elif len(route) == 4 and route[:2] == ["coding", "jobs"] and route[3] == "events":
+                self._serve_json(self.collector.collect_coding_job_events(team_name, route[2]))
+            elif len(route) == 4 and route[:2] == ["coding", "jobs"] and route[3] == "result":
+                self._serve_json(self.collector.collect_coding_job_result(team_name, route[2]))
+            elif len(route) == 4 and route[:2] == ["coding", "jobs"] and route[3] == "artifacts":
+                self._serve_json(self.collector.collect_coding_job_artifacts(team_name, route[2]))
+            elif route == ["coding", "sessions"]:
+                self._serve_json(self.collector.collect_provider_sessions(team_name))
+            elif len(route) == 3 and route[:2] == ["coding", "sessions"]:
+                self._serve_json(self.collector.collect_provider_session(team_name, route[2]))
+            elif len(route) == 4 and route[:2] == ["coding", "sessions"] and route[3] == "jobs":
+                self._serve_json(self.collector.collect_provider_session_jobs(team_name, route[2]))
+            elif len(route) == 4 and route[:2] == ["coding", "sessions"] and route[3] == "events":
+                self._serve_json(self.collector.collect_provider_session_events(team_name, route[2]))
+            elif route == ["callbacks"]:
+                self._serve_json(self.collector.collect_callbacks(team_name))
+            elif route == ["faults"]:
+                self._serve_json(self.collector.collect_faults(team_name))
+            elif route == ["timeline"]:
+                self._serve_json(self.collector.collect_timeline(team_name))
+            else:
+                self._serve_json_error(404, f"Unknown API route: /api/teams/{'/'.join(parts)}")
+        except ValueError as exc:
+            self._serve_json_error(404, str(exc))
+
+    def _serve_json_error(self, status: int, message: str):
+        body = json.dumps({"error": message}, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+        self.wfile.write(body)
 
     def _serve_sse(self, team_name: str):
         self.send_response(200)

@@ -70,3 +70,32 @@ def test_runtime_console_store_roundtrips_primary_objects():
     assert store.load_callback_report("demo", callback.job_id) is not None
     assert store.get_fault("demo", fault.fault_id) is not None
     assert store.list_timeline("demo")[0].event_id == event.event_id
+
+
+def test_runtime_console_store_inspect_methods_surface_corruption_explicitly(tmp_path, monkeypatch):
+    monkeypatch.setenv("CLAWTEAM_DATA_DIR", str(tmp_path))
+    store = RuntimeConsoleStore()
+    store.save_provider_session(
+        ProviderSessionRecord(
+            sessionId="psess-job-1",
+            provider="claude",
+            teamName="demo",
+            workerName="worker1",
+            workerId="worker-001",
+            state="initializing",
+            sessionMode="ephemeral",
+            resumeSupported=False,
+            currentJobId="job-1",
+            effectiveCwd="/tmp/worktree",
+        )
+    )
+    broken_path = store.provider_session_path("demo", "psess-bad")
+    broken_path.write_text("{bad-json", encoding="utf-8")
+
+    sessions, faults = store.inspect_provider_sessions("demo")
+
+    assert len(sessions) == 1
+    assert sessions[0].session_id == "psess-job-1"
+    assert len(faults) == 1
+    assert faults[0]["faultType"] == "corrupt_record"
+    assert faults[0]["recordKind"] == "provider_session"
