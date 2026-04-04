@@ -3,45 +3,494 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ClawTeam</title>
+<title>ClawTeam Runtime Console</title>
 <style>
   :root {
-    --bg: #000000;
-    --surface: #0a0a0a;
-    --surface2: #111111;
-    --surface3: #1a1a1a;
-    --border: rgba(255,255,255,0.08);
-    --border-hover: rgba(255,255,255,0.15);
-    --text: #f5f5f7;
-    --text-secondary: #86868b;
-    --text-tertiary: #6e6e73;
-    --accent: #ffffff;
-    --green: #30d158;
-    --orange: #ff9f0a;
-    --red: #ff453a;
-    --blue: #0a84ff;
-    --purple: #bf5af2;
-    --radius: 12px;
-    --radius-sm: 8px;
+    --bg: #071016;
+    --bg2: #0d1a22;
+    --panel: rgba(10, 26, 35, 0.92);
+    --panel-2: rgba(16, 36, 48, 0.92);
+    --panel-3: rgba(25, 51, 66, 0.88);
+    --border: rgba(150, 193, 214, 0.16);
+    --border-strong: rgba(150, 193, 214, 0.28);
+    --text: #eaf4f7;
+    --muted: #9db2be;
+    --soft: #6e8794;
+    --accent: #f7c66f;
+    --accent-2: #7dd3fc;
+    --green: #6ee7b7;
+    --orange: #fb923c;
+    --red: #f97373;
+    --blue: #60a5fa;
+    --shadow: 0 24px 80px rgba(0, 0, 0, 0.28);
+    --radius: 18px;
+    --radius-sm: 12px;
   }
 
-  * { box-sizing: border-box; margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
 
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-    background: var(--bg);
-    color: var(--text);
+    margin: 0;
     min-height: 100vh;
-    -webkit-font-smoothing: antialiased;
+    color: var(--text);
+    font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+    background:
+      radial-gradient(circle at top left, rgba(125, 211, 252, 0.16), transparent 28%),
+      radial-gradient(circle at top right, rgba(247, 198, 111, 0.18), transparent 22%),
+      linear-gradient(180deg, var(--bg), var(--bg2));
   }
 
   .runtime-notice {
-    padding: 10px 16px;
-    background: #111111;
+    padding: 12px 18px;
     border-bottom: 1px solid var(--border);
-    color: var(--text-secondary);
+    background: rgba(7, 16, 22, 0.76);
+    color: var(--muted);
+    font-size: 12px;
+    letter-spacing: 0.01em;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 16px 24px;
+    background: rgba(7, 16, 22, 0.84);
+    backdrop-filter: blur(18px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .brand {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .brand h1 {
+    margin: 0;
+    font-size: 16px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+
+  .brand span {
+    color: var(--soft);
+    font-size: 12px;
+  }
+
+  .team-select {
+    min-width: 260px;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 10px 14px;
+    outline: none;
+  }
+
+  .search-input {
+    min-width: 260px;
+    background: rgba(7, 16, 22, 0.72);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 10px 14px;
+    outline: none;
+  }
+
+  .status-pill {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+  }
+
+  .shell {
+    max-width: 1680px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  .hero {
+    display: grid;
+    grid-template-columns: 1.5fr 1fr;
+    gap: 18px;
+    margin-bottom: 18px;
+  }
+
+  .hero-panel {
+    padding: 24px;
+    border-radius: calc(var(--radius) + 6px);
+    background: linear-gradient(180deg, rgba(16, 36, 48, 0.96), rgba(10, 26, 35, 0.94));
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow);
+  }
+
+  .hero-label {
+    color: var(--soft);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+
+  .hero-title {
+    margin: 10px 0 8px;
+    font-size: 36px;
+    line-height: 1.05;
+    letter-spacing: -0.04em;
+  }
+
+  .hero-meta {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.6;
+    max-width: 62ch;
+  }
+
+  .truth-box {
+    display: grid;
+    gap: 10px;
+    align-content: start;
+  }
+
+  .truth-line {
+    padding: 12px 14px;
+    border-radius: var(--radius-sm);
+    background: rgba(7, 16, 22, 0.66);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .health-grid {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .health-card {
+    padding: 14px 16px;
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--panel);
+  }
+
+  .health-card .label {
+    color: var(--soft);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .health-card .value {
+    margin-top: 8px;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+  }
+
+  .health-card .meta {
+    margin-top: 6px;
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .dashboard {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 18px;
+    align-items: start;
+  }
+
+  .main-column {
+    display: grid;
+    gap: 18px;
+  }
+
+  .panel-grid {
+    display: grid;
+    grid-template-columns: 1.1fr 1.2fr 1.4fr;
+    gap: 18px;
+  }
+
+  .panel {
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    background: var(--panel);
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 16px 18px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(16, 36, 48, 0.9);
+  }
+
+  .panel-title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .panel-title strong {
+    font-size: 14px;
+    letter-spacing: 0.02em;
+  }
+
+  .panel-title span {
+    color: var(--soft);
+    font-size: 12px;
+  }
+
+  .badge {
+    padding: 5px 9px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: var(--panel-2);
+    color: var(--muted);
+    font-size: 11px;
+  }
+
+  .list {
+    display: grid;
+    gap: 10px;
+    padding: 14px;
+    max-height: 640px;
+    overflow: auto;
+  }
+
+  .subsection {
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .subsection:last-child {
+    border-bottom: 0;
+  }
+
+  .subsection-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .card {
+    padding: 14px;
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(16, 36, 48, 0.76), rgba(10, 26, 35, 0.92));
+    cursor: pointer;
+    transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+  }
+
+  .card:hover {
+    transform: translateY(-1px);
+    border-color: var(--border-strong);
+  }
+
+  .card.active {
+    border-color: rgba(247, 198, 111, 0.46);
+    background: linear-gradient(180deg, rgba(34, 54, 65, 0.92), rgba(14, 31, 41, 0.96));
+  }
+
+  .row-top,
+  .row-bottom,
+  .micro-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .row-top strong {
+    font-size: 13px;
+  }
+
+  .mono {
+    font-family: "SFMono-Regular", "Consolas", monospace;
+    font-size: 12px;
+  }
+
+  .muted {
+    color: var(--muted);
+  }
+
+  .soft {
+    color: var(--soft);
+  }
+
+  .summary {
+    margin-top: 10px;
+    color: var(--muted);
     font-size: 12px;
     line-height: 1.5;
+  }
+
+  .pill-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 10px;
+  }
+
+  .tone {
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    border: 1px solid transparent;
+  }
+
+  .drawer {
+    position: sticky;
+    top: 88px;
+    border-radius: calc(var(--radius) + 2px);
+    border: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(12, 28, 38, 0.96), rgba(8, 19, 27, 0.98));
+    box-shadow: var(--shadow);
+    overflow: hidden;
+  }
+
+  .drawer-head {
+    padding: 18px 18px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .drawer-head h2 {
+    margin: 6px 0 0;
+    font-size: 20px;
+    letter-spacing: -0.03em;
+  }
+
+  .tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 12px 18px 0;
+  }
+
+  .tab {
+    padding: 8px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font-size: 12px;
+    cursor: pointer;
+  }
+
+  .tab.active {
+    border-color: rgba(247, 198, 111, 0.4);
+    background: rgba(247, 198, 111, 0.12);
+    color: var(--text);
+  }
+
+  .drawer-body {
+    display: grid;
+    gap: 14px;
+    padding: 18px;
+    max-height: calc(100vh - 180px);
+    overflow: auto;
+  }
+
+  .kv-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .kv {
+    padding: 12px;
+    border-radius: var(--radius-sm);
+    background: rgba(7, 16, 22, 0.72);
+    border: 1px solid var(--border);
+  }
+
+  .kv .k {
+    color: var(--soft);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .kv .v {
+    margin-top: 6px;
+    font-size: 13px;
+    line-height: 1.5;
+    word-break: break-word;
+  }
+
+  pre.raw {
+    margin: 0;
+    padding: 14px;
+    border-radius: var(--radius-sm);
+    background: rgba(7, 16, 22, 0.72);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.55;
+    overflow: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .empty {
+    padding: 22px;
+    border: 1px dashed var(--border);
+    border-radius: var(--radius-sm);
+    color: var(--soft);
+    text-align: center;
+    font-size: 13px;
+  }
+
+  @media (max-width: 1320px) {
+    .dashboard {
+      grid-template-columns: 1fr;
+    }
+
+    .drawer {
+      position: static;
+    }
+  }
+
+  @media (max-width: 1120px) {
+    .hero,
+    .panel-grid,
+    .health-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .kv-grid {
+      grid-template-columns: 1fr;
+    }
   }
 </style>
 <!-- Convenience UI only: operational source of truth remains durable state and CLI/Rich board output. -->
@@ -51,460 +500,782 @@
 </head>
 <body>
 <div class="runtime-notice">
-  Web board is a convenience surface. Durable job/task files and CLI or Rich board output remain the source of truth.
+  Runtime Console renders durable state only. Provider session metadata that is not persisted is shown as <strong>ephemeral</strong> or <strong>unavailable</strong>, never guessed.
 </div>
 <div id="root"></div>
 <script type="text/babel">
-const { useState, useEffect, useRef, useMemo } = React;
+const { useEffect, useMemo, useRef, useState } = React;
 
-// ─── Styles ────────────────────────────────────────────────────────────────
+function safe(value, fallback = "unavailable") {
+  if (value === null || value === undefined || value === "") {
+    return fallback;
+  }
+  return String(value);
+}
 
-const S = {
-  nav: {
-    position: 'sticky', top: 0, zIndex: 100,
-    background: 'rgba(0,0,0,0.72)',
-    backdropFilter: 'saturate(180%) blur(20px)',
-    WebkitBackdropFilter: 'saturate(180%) blur(20px)',
-    borderBottom: '1px solid var(--border)',
-    padding: '0 32px', height: 52,
-    display: 'flex', alignItems: 'center', gap: 16,
-  },
-  navTitle: {
-    fontSize: 15, fontWeight: 600, letterSpacing: '-0.01em',
-    color: 'var(--text)',
-  },
-  select: {
-    background: 'var(--surface2)', color: 'var(--text)',
-    border: '1px solid var(--border)', borderRadius: 8,
-    padding: '6px 12px', fontSize: 13, outline: 'none',
-    cursor: 'pointer',
-  },
-  statusDot: (connected) => ({
-    width: 8, height: 8, borderRadius: '50%', marginLeft: 'auto',
-    background: connected ? 'var(--green)' : 'var(--red)',
-    boxShadow: connected ? '0 0 8px var(--green)' : 'none',
-  }),
-  statusText: {
-    fontSize: 12, color: 'var(--text-tertiary)', marginLeft: 6,
-  },
-  container: {
-    maxWidth: 1200, margin: '0 auto', padding: '24px 32px',
-  },
+function shortTime(value) {
+  if (!value) return "--";
+  return String(value).replace("T", " ").slice(0, 19);
+}
 
-  // Summary cards
-  summaryGrid: {
-    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-    gap: 12, marginBottom: 24,
-  },
-  summaryCard: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    padding: '20px 16px', textAlign: 'center',
-    transition: 'border-color 0.2s',
-  },
-  summaryNum: (color) => ({
-    fontSize: 32, fontWeight: 700, letterSpacing: '-0.02em',
-    color: color, lineHeight: 1,
-  }),
-  summaryLabel: {
-    fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)',
-    textTransform: 'uppercase', letterSpacing: '0.06em',
-    marginTop: 6,
-  },
+function toneStyle(kind) {
+  const map = {
+    completed: { background: "rgba(110, 231, 183, 0.14)", color: "var(--green)", borderColor: "rgba(110, 231, 183, 0.22)" },
+    running: { background: "rgba(96, 165, 250, 0.14)", color: "var(--blue)", borderColor: "rgba(96, 165, 250, 0.22)" },
+    queued: { background: "rgba(125, 211, 252, 0.14)", color: "var(--accent-2)", borderColor: "rgba(125, 211, 252, 0.22)" },
+    failed: { background: "rgba(249, 115, 115, 0.14)", color: "var(--red)", borderColor: "rgba(249, 115, 115, 0.24)" },
+    timeout: { background: "rgba(251, 146, 60, 0.16)", color: "var(--orange)", borderColor: "rgba(251, 146, 60, 0.24)" },
+    cancelled: { background: "rgba(249, 115, 115, 0.14)", color: "var(--red)", borderColor: "rgba(249, 115, 115, 0.24)" },
+    blocked: { background: "rgba(249, 115, 115, 0.14)", color: "var(--red)", borderColor: "rgba(249, 115, 115, 0.24)" },
+    report_progress: { background: "rgba(125, 211, 252, 0.14)", color: "var(--accent-2)", borderColor: "rgba(125, 211, 252, 0.22)" },
+    escalate: { background: "rgba(249, 115, 115, 0.14)", color: "var(--red)", borderColor: "rgba(249, 115, 115, 0.24)" },
+    ephemeral: { background: "rgba(247, 198, 111, 0.14)", color: "var(--accent)", borderColor: "rgba(247, 198, 111, 0.22)" },
+    callback_pending: { background: "rgba(247, 198, 111, 0.14)", color: "var(--accent)", borderColor: "rgba(247, 198, 111, 0.22)" },
+    warning: { background: "rgba(251, 146, 60, 0.16)", color: "var(--orange)", borderColor: "rgba(251, 146, 60, 0.24)" },
+    critical: { background: "rgba(249, 115, 115, 0.14)", color: "var(--red)", borderColor: "rgba(249, 115, 115, 0.24)" },
+  };
+  return map[kind] || { background: "rgba(157, 178, 190, 0.12)", color: "var(--muted)", borderColor: "rgba(150, 193, 214, 0.16)" };
+}
 
-  // Section
-  section: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    marginBottom: 20, overflow: 'hidden',
-  },
-  sectionHeader: {
-    padding: '14px 20px',
-    borderBottom: '1px solid var(--border)',
-    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-  },
-  sectionTitle: {
-    fontSize: 13, fontWeight: 600, color: 'var(--text)',
-    letterSpacing: '-0.01em',
-  },
-  sectionBadge: {
-    fontSize: 11, fontWeight: 500, color: 'var(--text-tertiary)',
-    background: 'var(--surface3)', borderRadius: 10,
-    padding: '2px 8px',
-  },
+function Tone({ kind, children }) {
+  return <span className="tone" style={toneStyle(kind)}>{children}</span>;
+}
 
-  // Members
-  membersGrid: {
-    display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))',
-    gap: 1, background: 'var(--border)',
-  },
-  memberCard: {
-    background: 'var(--surface)', padding: '14px 20px',
-  },
-  memberName: {
-    fontSize: 14, fontWeight: 600, color: 'var(--text)',
-  },
-  memberType: {
-    fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2,
-  },
-  inboxBadge: (count) => ({
-    display: 'inline-block', marginTop: 6,
-    fontSize: 11, fontWeight: 500,
-    padding: '2px 8px', borderRadius: 10,
-    background: count > 0 ? 'rgba(255,69,58,0.15)' : 'var(--surface3)',
-    color: count > 0 ? 'var(--red)' : 'var(--text-tertiary)',
-  }),
+function selectableClass(selected, currentType, currentId) {
+  return selected && selected.type === currentType && selected.id === currentId ? "card active" : "card";
+}
 
-  // Messages
-  msgList: {
-    maxHeight: 360, overflowY: 'auto',
-  },
-  msgItem: {
-    padding: '12px 20px',
-    borderBottom: '1px solid var(--border)',
-    transition: 'background 0.15s',
-  },
-  msgMeta: {
-    display: 'flex', alignItems: 'center', gap: 8,
-    fontSize: 12, marginBottom: 4,
-  },
-  msgTag: {
-    fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
-    letterSpacing: '0.04em',
-    padding: '2px 6px', borderRadius: 4,
-    background: 'var(--surface3)', color: 'var(--text-tertiary)',
-  },
-  msgFrom: { color: 'var(--text)', fontWeight: 500 },
-  msgTo: { color: 'var(--text-tertiary)' },
-  msgTime: { color: 'var(--text-tertiary)', marginLeft: 'auto', fontSize: 11 },
-  msgContent: {
-    fontSize: 13, color: 'var(--text-secondary)',
-    lineHeight: 1.5, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-  },
-  msgEmpty: {
-    padding: 32, textAlign: 'center',
-    fontSize: 13, color: 'var(--text-tertiary)',
-  },
+function matchesSearch(record, query) {
+  if (!query) return true;
+  const text = JSON.stringify(record || {}).toLowerCase();
+  return text.includes(query.toLowerCase());
+}
 
-  // Kanban
-  kanban: {
-    display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
-    gap: 12,
-  },
-  kanbanCol: {
-    background: 'var(--surface)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius)',
-    minHeight: 200, overflow: 'hidden',
-  },
-  kanbanHeader: (color) => ({
-    padding: '12px 16px',
-    borderBottom: `2px solid ${color}`,
-    fontSize: 11, fontWeight: 600, textTransform: 'uppercase',
-    letterSpacing: '0.06em', color: color,
-    display: 'flex', justifyContent: 'space-between',
-  }),
-  kanbanBody: { padding: 8 },
-  taskCard: {
-    background: 'var(--surface2)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-sm)',
-    padding: '10px 12px', marginBottom: 6,
-    transition: 'border-color 0.15s',
-    cursor: 'default',
-  },
-  taskId: {
-    fontSize: 11, fontFamily: 'SF Mono, Menlo, monospace',
-    color: 'var(--text-tertiary)',
-  },
-  taskSubject: {
-    fontSize: 13, fontWeight: 500, color: 'var(--text)',
-    marginTop: 2, lineHeight: 1.4,
-  },
-  taskOwner: {
-    fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4,
-  },
-  taskCoding: {
-    fontSize: 11, color: '#d0b3ff', marginTop: 4, lineHeight: 1.4,
-  },
-  taskBlocked: {
-    fontSize: 11, color: 'var(--red)', marginTop: 2,
-  },
-  emptyCol: {
-    padding: 24, textAlign: 'center',
-    fontSize: 12, color: 'var(--text-tertiary)',
-  },
+function countAlive(members) {
+  return members.filter(member => member.alive !== false).length;
+}
 
-  // Team header
-  teamInfo: {
-    display: 'flex', alignItems: 'baseline', gap: 16,
-    marginBottom: 20,
-  },
-  teamName: {
-    fontSize: 28, fontWeight: 700, letterSpacing: '-0.03em',
-    color: 'var(--text)',
-  },
-  teamMeta: {
-    fontSize: 13, color: 'var(--text-tertiary)',
-  },
-  codingMeta: {
-    padding: '16px 20px',
-    fontSize: 12, color: 'var(--text-secondary)',
-    lineHeight: 1.6,
-  },
-};
-
-// ─── Components ────────────────────────────────────────────────────────────
-
-function SummaryCards({ summary }) {
-  const items = [
-    { key: 'pending', label: 'Pending', color: 'var(--orange)' },
-    { key: 'in_progress', label: 'In Progress', color: 'var(--blue)' },
-    { key: 'completed', label: 'Completed', color: 'var(--green)' },
-    { key: 'blocked', label: 'Blocked', color: 'var(--red)' },
+function buildHealthCards(data) {
+  const runtime = data.runtimeConsole || {};
+  const jobSummary = runtime.summary?.jobs || {};
+  const sessionSummary = runtime.summary?.sessions || {};
+  const callbackSummary = runtime.summary?.callbacks || {};
+  const faultSummary = runtime.summary?.faults || {};
+  return [
+    { label: "Workers", value: `${countAlive(data.members || [])}/${(data.members || []).length}`, meta: "alive / total", color: "var(--accent-2)" },
+    { label: "Tasks", value: data.taskSummary?.total || 0, meta: `pending ${data.taskSummary?.pending || 0} / in progress ${data.taskSummary?.in_progress || 0}`, color: "var(--accent)" },
+    { label: "Active Jobs", value: jobSummary.active || 0, meta: `queued ${jobSummary.queued || 0} / running ${jobSummary.running || 0}`, color: "var(--blue)" },
+    { label: "Sessions", value: sessionSummary.total || 0, meta: `ephemeral ${sessionSummary.ephemeral || 0} / attached ${sessionSummary.attached || 0}`, color: "var(--accent)" },
+    { label: "Callbacks", value: callbackSummary.total || 0, meta: `reported ${callbackSummary.reported || 0} / escalated ${callbackSummary.escalated || 0}`, color: "var(--green)" },
+    { label: "Faults", value: faultSummary.total || 0, meta: "explicit runtime-visible faults", color: faultSummary.total ? "var(--red)" : "var(--green)" },
   ];
+}
+
+function useDefaultSelection(data, selected, setSelected) {
+  useEffect(() => {
+    if (!data) return;
+    const runtime = data.runtimeConsole || {};
+    if (runtime.faults && runtime.faults.length) {
+      setSelected({ type: "fault", id: runtime.faults[0].faultId || runtime.faults[0].message, data: runtime.faults[0] });
+      return;
+    }
+    if (runtime.sessions && runtime.sessions.length) {
+      setSelected({ type: "session", id: runtime.sessions[0].sessionId, data: runtime.sessions[0] });
+      return;
+    }
+    if (runtime.jobs && runtime.jobs.length) {
+      setSelected({ type: "job", id: runtime.jobs[0].jobId, data: runtime.jobs[0] });
+      return;
+    }
+    if (runtime.tasks && runtime.tasks.length) {
+      setSelected({ type: "task", id: runtime.tasks[0].id, data: runtime.tasks[0] });
+    }
+  }, [data]);
+}
+
+function Panel({ title, subtitle, badge, children }) {
   return (
-    <div style={S.summaryGrid}>
-      {items.map(it => (
-        <div key={it.key} style={S.summaryCard}>
-          <div style={S.summaryNum(it.color)}>{summary[it.key] || 0}</div>
-          <div style={S.summaryLabel}>{it.label}</div>
+    <section className="panel">
+      <div className="panel-header">
+        <div className="panel-title">
+          <strong>{title}</strong>
+          <span>{subtitle}</span>
         </div>
-      ))}
-    </div>
+        {badge !== undefined ? <span className="badge">{badge}</span> : null}
+      </div>
+      {children}
+    </section>
   );
 }
 
-function Members({ members }) {
+function WorkersPanel({ data, selected, onSelect, query }) {
+  const workers = (data.runtimeConsole?.workers || []).filter(worker => matchesSearch(worker, query));
   return (
-    <div style={S.section}>
-      <div style={S.sectionHeader}>
-        <span style={S.sectionTitle}>Members</span>
-        <span style={S.sectionBadge}>{members.length}</span>
-      </div>
-      <div style={S.membersGrid}>
-        {members.map(m => (
-          <div key={m.name} style={S.memberCard}>
-            <div style={S.memberName}>{m.name}</div>
-            {m.user && <div style={{fontSize: 12, color: 'var(--purple)'}}>{m.user}</div>}
-            <div style={S.memberType}>{m.agentType}</div>
-            <span style={S.inboxBadge(m.inboxCount)}>
-              {m.inboxCount > 0 ? `${m.inboxCount} message${m.inboxCount > 1 ? 's' : ''}` : 'inbox empty'}
-            </span>
+    <Panel title="Workers" subtitle="Agent runtime mapped to current task/job/session" badge={workers.length}>
+      <div className="list">
+        {workers.length === 0 ? <div className="empty">No workers discovered.</div> : workers.map(worker => (
+          <div
+            key={worker.name}
+            className={selectableClass(selected, "worker", worker.name)}
+            onClick={() => onSelect("worker", worker.name, worker)}
+          >
+            <div className="row-top">
+              <strong>{worker.name}</strong>
+              <Tone kind={worker.alive === false ? "failed" : "completed"}>{worker.alive === false ? "stale" : "alive"}</Tone>
+            </div>
+            <div className="pill-row">
+              <Tone kind={worker.sessionMode || "ephemeral"}>{safe(worker.sessionMode, "ephemeral")}</Tone>
+              {worker.callbackPending ? <Tone kind="callback_pending">callback pending</Tone> : null}
+            </div>
+            <div className="summary">
+              task={safe(worker.currentTaskId, "-")}<br />
+              job={safe(worker.currentJobId, "-")}<br />
+              session={safe(worker.currentSessionId, "unavailable")}
+            </div>
           </div>
         ))}
       </div>
-    </div>
+    </Panel>
   );
 }
 
-function Messages({ messages }) {
-  const sorted = useMemo(() => {
-    return [...messages].sort((a, b) =>
-      (b.timestamp || '').localeCompare(a.timestamp || '')
-    );
-  }, [messages]);
-
+function TasksPanel({ data, selected, onSelect, query }) {
+  const tasks = (data.runtimeConsole?.tasks || []).filter(task => matchesSearch(task, query));
+  const groups = {
+    pending: tasks.filter(task => task.status === "pending"),
+    in_progress: tasks.filter(task => task.status === "in_progress"),
+    blocked: tasks.filter(task => task.status === "blocked"),
+  };
   return (
-    <div style={S.section}>
-      <div style={S.sectionHeader}>
-        <span style={S.sectionTitle}>Messages</span>
-        <span style={S.sectionBadge}>{messages.length}</span>
+    <Panel title="Tasks" subtitle="Business work items with latest coding context" badge={tasks.length}>
+      <div className="subsection">
+        <div className="subsection-head"><span>Leader View</span><span>{data.team.leaderName || "unknown"}</span></div>
+        <div className="pill-row">
+          <Tone kind="queued">pending {data.taskSummary?.pending || 0}</Tone>
+          <Tone kind="running">in progress {data.taskSummary?.in_progress || 0}</Tone>
+          <Tone kind="completed">completed {data.taskSummary?.completed || 0}</Tone>
+          <Tone kind="blocked">blocked {data.taskSummary?.blocked || 0}</Tone>
+        </div>
       </div>
-      <div style={S.msgList}>
-        {sorted.length === 0 ? (
-          <div style={S.msgEmpty}>No pending messages</div>
-        ) : sorted.map((msg, i) => {
-          const time = (msg.timestamp || '').slice(11, 19);
-          const date = (msg.timestamp || '').slice(5, 10);
+      <div className="list">
+        {tasks.length === 0 ? <div className="empty">No tasks available.</div> : tasks.map(task => {
+          const coding = task.metadata?.coding || {};
           return (
-            <div key={i} style={S.msgItem}>
-              <div style={S.msgMeta}>
-                <span style={S.msgTag}>{msg.type || 'message'}</span>
-                <span style={S.msgFrom}>{msg.from || ''}</span>
-                <span style={S.msgTo}>{msg.to || ''}</span>
-                <span style={S.msgTime}>{date} {time}</span>
+            <div
+              key={task.id}
+              className={selectableClass(selected, "task", task.id)}
+              onClick={() => onSelect("task", task.id, task)}
+            >
+              <div className="row-top">
+                <strong>{task.subject}</strong>
+                <Tone kind={task.status}>{task.status}</Tone>
               </div>
-              <div style={S.msgContent}>{msg.content || ''}</div>
+              <div className="micro-row mono muted">
+                <span>{task.id}</span>
+                <span>{safe(task.owner, "-")}</span>
+              </div>
+              <div className="summary">
+                latest job={safe(coding.latestJobId, "-")}<br />
+                provider={safe(coding.provider, "-")} decision={safe(coding.decision, "-")}<br />
+                {coding.summary || "No coding summary persisted yet."}
+              </div>
+              {task.blockedBy && task.blockedBy.length ? (
+                <div className="pill-row">
+                  <Tone kind="blocked">blocked by {task.blockedBy.join(", ")}</Tone>
+                </div>
+              ) : null}
             </div>
           );
         })}
       </div>
-    </div>
+    </Panel>
   );
 }
 
-function CodingJobs({ coding }) {
-  const summary = coding?.summary || {};
-  const jobs = coding?.recentJobs || [];
-  const storage = coding?.storage || {};
+function RuntimePanel({ data, selected, onSelect, query }) {
+  const runtime = data.runtimeConsole || {};
+  const sessions = (runtime.sessions || []).filter(session => matchesSearch(session, query));
+  const jobs = (runtime.jobs || []).filter(job => matchesSearch(job, query));
+  const faults = (runtime.faults || []).filter(fault => matchesSearch(fault, query));
   return (
-    <div style={S.section}>
-      <div style={S.sectionHeader}>
-        <span style={S.sectionTitle}>Coding Runtime</span>
-        <span style={S.sectionBadge}>{summary.total || 0}</span>
-      </div>
-      <div style={S.codingMeta}>
-        active={summary.active || 0} queued={summary.queued || 0} running={summary.running || 0} completed={summary.completed || 0} failed={summary.failed || 0} timeout={summary.timeout || 0} cancelled={summary.cancelled || 0}
-        <br />
-        jobs: {storage.jobsRoot || '-'}
-        <br />
-        results: {storage.resultsRoot || '-'}
-        <br />
-        artifacts: {storage.artifactsRoot || '-'}
-        {jobs.length > 0 && (
-          <>
-            <br /><br />
-            {jobs.slice(0, 5).map(job => (
-              <div key={job.jobId} style={{marginBottom: 10}}>
-                <strong>{job.jobId}</strong> {job.workerName} {job.provider} {job.state}
-                <br />
-                {job.effectiveCwd}
-                {job.summary && (<><br />{job.summary}</>)}
-              </div>
-            ))}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function TaskCard({ task, status }) {
-  const coding = task.metadata?.coding;
-  return (
-    <div style={S.taskCard}
-      onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'}
-      onMouseLeave={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.08)'}>
-      <div style={S.taskId}>#{(task.id || '').slice(0, 8)}</div>
-      <div style={S.taskSubject}>{task.subject || ''}</div>
-      <div style={S.taskOwner}>{task.owner || '-'}</div>
-      {coding && (
-        <div style={S.taskCoding}>
-          coding: {coding.provider || '-'} {coding.status || '-'} job={coding.latestJobId || '-'}
-          {coding.summary ? ` • ${coding.summary}` : ''}
+    <Panel title="Coding Runtime" subtitle="Provider sessions and jobs remain distinct objects" badge={`${jobs.length} jobs / ${sessions.length} sessions`}>
+      <div className="subsection">
+        <div className="subsection-head">
+          <span>Provider Sessions</span>
+          <span>{sessions.length}</span>
         </div>
-      )}
-      {status === 'blocked' && task.blockedBy && task.blockedBy.length > 0 && (
-        <div style={S.taskBlocked}>blocked by: {task.blockedBy.join(', ')}</div>
-      )}
-    </div>
+        <div className="list" style={{ padding: 0, maxHeight: 300 }}>
+          {sessions.length === 0 ? <div className="empty">No provider sessions persisted.</div> : sessions.map(session => (
+            <div
+              key={session.sessionId}
+              className={selectableClass(selected, "session", session.sessionId)}
+              onClick={() => onSelect("session", session.sessionId, session)}
+              style={{ margin: "0 0 10px" }}
+            >
+              <div className="row-top">
+                <strong>{safe(session.providerSessionId, session.sessionId)}</strong>
+                <Tone kind={session.state}>{session.state}</Tone>
+              </div>
+              <div className="pill-row">
+                <Tone kind={session.sessionMode}>{session.sessionMode}</Tone>
+                <Tone kind={session.callbackStatus}>{session.callbackStatus}</Tone>
+              </div>
+              <div className="summary">
+                worker={session.workerName} current job={safe(session.currentJobId, "-")}<br />
+                provider session id={safe(session.providerSessionId, "unavailable")}<br />
+                cwd={safe(session.effectiveCwd, "-")}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="subsection">
+        <div className="subsection-head">
+          <span>Coding Jobs</span>
+          <span>{jobs.length}</span>
+        </div>
+        <div className="list" style={{ padding: 0, maxHeight: 320 }}>
+          {jobs.length === 0 ? <div className="empty">No coding jobs persisted.</div> : jobs.map(job => (
+            <div
+              key={job.jobId}
+              className={selectableClass(selected, "job", job.jobId)}
+              onClick={() => onSelect("job", job.jobId, job)}
+              style={{ margin: "0 0 10px" }}
+            >
+              <div className="row-top">
+                <strong>{job.jobId}</strong>
+                <Tone kind={job.state}>{job.state}</Tone>
+              </div>
+              <div className="micro-row mono muted">
+                <span>{safe(job.taskId, "-")}</span>
+                <span>{job.provider}</span>
+              </div>
+              <div className="pill-row">
+                <Tone kind={job.sessionMode}>{job.sessionMode}</Tone>
+                <Tone kind={job.callbackStatus || "queued"}>{safe(job.callbackStatus, "not_applicable")}</Tone>
+              </div>
+              <div className="summary">
+                attempt={job.attemptKind} retry={job.retryCount} replay={job.replayCount}<br />
+                session={safe(job.providerSessionId, "unavailable")} / ref={safe(job.providerSessionRef, "-")}<br />
+                {job.summary || "No summary persisted yet."}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="subsection">
+        <div className="subsection-head">
+          <span>Runtime Faults</span>
+          <span>{runtime.faults?.length || 0}</span>
+        </div>
+        <div className="list" style={{ padding: 0, maxHeight: 220 }}>
+          {faults.length ? faults.map((fault, index) => (
+            <div
+              key={fault.faultId || `${fault.faultType}-${index}`}
+              className={selectableClass(selected, "fault", fault.faultId || fault.message)}
+              onClick={() => onSelect("fault", fault.faultId || fault.message, fault)}
+              style={{ margin: "0 0 10px" }}
+            >
+              <div className="row-top">
+                <strong>{fault.faultId || fault.faultType}</strong>
+                <Tone kind={fault.severity || "warning"}>{fault.severity || "warning"}</Tone>
+              </div>
+              <div className="summary">
+                {fault.scopeType ? `${fault.scopeType}:${fault.scopeId}` : fault.recordKind}<br />
+                {fault.message}
+              </div>
+            </div>
+          )) : <div className="empty">No runtime faults recorded.</div>}
+        </div>
+      </div>
+    </Panel>
   );
 }
 
-function Kanban({ tasks }) {
-  const cols = [
-    { key: 'pending', label: 'Pending', color: 'var(--orange)' },
-    { key: 'in_progress', label: 'In Progress', color: 'var(--blue)' },
-    { key: 'completed', label: 'Completed', color: 'var(--green)' },
-    { key: 'blocked', label: 'Blocked', color: 'var(--red)' },
-  ];
+function TimelinePanel({ data, selected, onSelect, query }) {
+  const [filter, setFilter] = useState("all");
+  const events = data.runtimeConsole?.timeline || [];
+  const filtered = events.filter(event => {
+    if (filter === "all") return true;
+    if (filter === "tasks") return event.scopeType === "task";
+    if (filter === "jobs") return event.scopeType === "coding_job";
+    if (filter === "sessions") return event.scopeType === "provider_session";
+    if (filter === "callbacks") return event.scopeType === "callback";
+    if (filter === "faults") return event.scopeType === "fault" || event.eventType.includes("fault");
+    return true;
+  }).filter(event => matchesSearch(event, query));
   return (
-    <div style={S.kanban}>
-      {cols.map(col => {
-        const items = tasks[col.key] || [];
-        return (
-          <div key={col.key} style={S.kanbanCol}>
-            <div style={S.kanbanHeader(col.color)}>
-              <span>{col.label}</span>
-              <span>{items.length}</span>
+    <Panel title="Event Timeline" subtitle="Unified runtime causality over tasks, jobs, sessions, callbacks, and faults" badge={filtered.length}>
+      <div className="subsection">
+        <div className="pill-row">
+          {["all", "tasks", "jobs", "sessions", "callbacks", "faults"].map(name => (
+            <button
+              key={name}
+              className={`tab ${filter === name ? "active" : ""}`}
+              onClick={() => setFilter(name)}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="list">
+        {filtered.length === 0 ? <div className="empty">No events match this filter.</div> : filtered.map(event => (
+          <div
+            key={event.eventId}
+            className={selectableClass(selected, "event", event.eventId)}
+            onClick={() => onSelect("event", event.eventId, event)}
+          >
+            <div className="row-top">
+              <strong>{event.summary}</strong>
+              <Tone kind={event.scopeType === "provider_session" ? "ephemeral" : "report_progress"}>{event.eventType}</Tone>
             </div>
-            <div style={S.kanbanBody}>
-              {items.length === 0 ? (
-                <div style={S.emptyCol}>&mdash;</div>
-              ) : items.map(t => (
-                <TaskCard key={t.id} task={t} status={col.key} />
-              ))}
+            <div className="micro-row mono muted">
+              <span>{shortTime(event.timestamp)}</span>
+              <span>{event.scopeType}:{event.scopeId}</span>
+            </div>
+            <div className="summary">
+              actor={event.actorType}:{event.actorId}<br />
+              links job={safe(event.links?.jobId, "-")} task={safe(event.links?.taskId, "-")} session={safe(event.links?.sessionId, "-")}
             </div>
           </div>
-        );
-      })}
+        ))}
+      </div>
+    </Panel>
+  );
+}
+
+function buildTabs(selected) {
+  if (!selected) return ["Summary", "Raw JSON"];
+  const base = ["Summary", "Timeline", "Artifacts", "Workspace", "Raw JSON"];
+  if (selected.type === "job") return ["Summary", "Result", "Callback", "Artifacts", "Workspace", "stdout", "stderr", "Timeline", "Raw JSON"];
+  if (selected.type === "session") return ["Summary", "Session Info", "Bound Jobs", "Resume Info", "Timeline", "Raw JSON"];
+  if (selected.type === "task") return ["Summary", "Dependencies", "Latest Coding", "Leader Decisions", "Timeline", "Raw JSON"];
+  return base;
+}
+
+function relationTimeline(data, selected) {
+  const events = data.runtimeConsole?.timeline || [];
+  if (!selected) return [];
+  if (selected.type === "job") return events.filter(event => event.links?.jobId === selected.id || event.scopeId === selected.id);
+  if (selected.type === "session") return events.filter(event => event.links?.sessionId === selected.id || event.scopeId === selected.id);
+  if (selected.type === "task") return events.filter(event => event.links?.taskId === selected.id || event.scopeId === selected.id);
+  if (selected.type === "fault") return events.filter(event => event.scopeId === selected.id || event.links?.faultId === selected.id);
+  if (selected.type === "worker") return events.filter(event => event.actorId === selected.id);
+  return events.filter(event => event.eventId === selected.id);
+}
+
+function relatedArtifacts(selected) {
+  if (!selected || !selected.data) return [];
+  const paths = selected.data.artifactPaths || {};
+  return Object.keys(paths).sort().map(name => ({ name, path: paths[name] }));
+}
+
+function DrawerEmpty() {
+  return <div className="empty">Select a worker, task, job, session, fault, or event to inspect runtime details.</div>;
+}
+
+function KeyValue({ label, value }) {
+  return (
+    <div className="kv">
+      <div className="k">{label}</div>
+      <div className="v">{value}</div>
     </div>
   );
 }
 
-function Dashboard({ data }) {
-  const { team, members = [], tasks = {}, taskSummary = {}, messages = [], coding = {} } = data;
+function DetailDrawer({ data, selected }) {
+  const tabs = buildTabs(selected);
+  const [activeTab, setActiveTab] = useState(tabs[0]);
+
+  useEffect(() => {
+    setActiveTab(tabs[0]);
+  }, [selected?.type, selected?.id]);
+
+  if (!selected) {
+    return (
+      <aside className="drawer">
+        <div className="drawer-head">
+          <div className="hero-label">Detail Drawer</div>
+          <h2>Runtime Inspector</h2>
+        </div>
+        <div className="drawer-body">
+          <DrawerEmpty />
+        </div>
+      </aside>
+    );
+  }
+
+  const relatedEvents = relationTimeline(data, selected);
+  const callbacks = data.runtimeConsole?.callbacks || [];
+  const jobs = data.runtimeConsole?.jobs || [];
+  const sessionJobs = selected.type === "session"
+    ? jobs.filter(job => job.providerSessionRef === selected.id)
+    : [];
+  const callbackForJob = selected.type === "job"
+    ? callbacks.find(callback => callback.jobId === selected.id)
+    : null;
+  const coding = selected.type === "task" ? selected.data.metadata?.coding || null : null;
+  const artifacts = relatedArtifacts(selected);
+  const stdoutArtifact = artifacts.find(artifact => artifact.name.toLowerCase().includes("stdout"));
+  const stderrArtifact = artifacts.find(artifact => artifact.name.toLowerCase().includes("stderr"));
+
+  function summaryView() {
+    if (selected.type === "job") {
+      return (
+        <div className="kv-grid">
+          <KeyValue label="Job ID" value={selected.data.jobId} />
+          <KeyValue label="Task ID" value={safe(selected.data.taskId, "-")} />
+          <KeyValue label="Provider" value={selected.data.provider} />
+          <KeyValue label="State" value={selected.data.state} />
+          <KeyValue label="Session Mode" value={selected.data.sessionMode} />
+          <KeyValue label="Provider Session ID" value={safe(selected.data.providerSessionId, "unavailable")} />
+          <KeyValue label="Requested CWD" value={safe(selected.data.requestedCwd, "-")} />
+          <KeyValue label="Effective CWD" value={selected.data.effectiveCwd} />
+          <KeyValue label="Leader" value={safe(selected.data.leaderName, "-")} />
+          <KeyValue label="Callback Status" value={safe(selected.data.callbackStatus, "not_applicable")} />
+        </div>
+      );
+    }
+    if (selected.type === "session") {
+      return (
+        <div className="kv-grid">
+          <KeyValue label="Session Ref" value={selected.data.sessionId} />
+          <KeyValue label="Provider Session ID" value={safe(selected.data.providerSessionId, "unavailable")} />
+          <KeyValue label="Mode" value={selected.data.sessionMode} />
+          <KeyValue label="State" value={selected.data.state} />
+          <KeyValue label="Worker" value={selected.data.workerName} />
+          <KeyValue label="Current Job" value={safe(selected.data.currentJobId, "-")} />
+          <KeyValue label="Current Task" value={safe(selected.data.currentTaskId, "-")} />
+          <KeyValue label="Resume Supported" value={selected.data.resumeSupported ? "yes" : "no"} />
+          <KeyValue label="Effective CWD" value={safe(selected.data.effectiveCwd, "-")} />
+          <KeyValue label="Callback Status" value={safe(selected.data.callbackStatus, "not_applicable")} />
+        </div>
+      );
+    }
+    if (selected.type === "task") {
+      return (
+        <div className="kv-grid">
+          <KeyValue label="Task" value={selected.data.id} />
+          <KeyValue label="Subject" value={selected.data.subject} />
+          <KeyValue label="Status" value={selected.data.status} />
+          <KeyValue label="Owner" value={safe(selected.data.owner, "-")} />
+          <KeyValue label="Started" value={safe(selected.data.startedAt, "-")} />
+          <KeyValue label="Updated" value={safe(selected.data.updatedAt, "-")} />
+        </div>
+      );
+    }
+    if (selected.type === "worker") {
+      return (
+        <div className="kv-grid">
+          <KeyValue label="Worker" value={selected.data.name} />
+          <KeyValue label="Agent ID" value={selected.data.agentId} />
+          <KeyValue label="Current Task" value={safe(selected.data.currentTaskId, "-")} />
+          <KeyValue label="Current Job" value={safe(selected.data.currentJobId, "-")} />
+          <KeyValue label="Current Session" value={safe(selected.data.currentSessionId, "unavailable")} />
+          <KeyValue label="Session Mode" value={safe(selected.data.sessionMode, "unknown")} />
+        </div>
+      );
+    }
+    if (selected.type === "fault") {
+      return (
+        <div className="kv-grid">
+          <KeyValue label="Fault" value={selected.data.faultId || selected.data.faultType} />
+          <KeyValue label="Severity" value={safe(selected.data.severity, "warning")} />
+          <KeyValue label="Scope" value={selected.data.scopeType ? `${selected.data.scopeType}:${selected.data.scopeId}` : safe(selected.data.recordKind, "-")} />
+          <KeyValue label="Status" value={safe(selected.data.status, "open")} />
+        </div>
+      );
+    }
+    return <pre className="raw">{JSON.stringify(selected.data, null, 2)}</pre>;
+  }
+
+  function renderTab() {
+    if (activeTab === "Summary") return summaryView();
+    if (activeTab === "Timeline") {
+      return relatedEvents.length ? (
+        <pre className="raw">{JSON.stringify(relatedEvents, null, 2)}</pre>
+      ) : <div className="empty">No related timeline events.</div>;
+    }
+    if (activeTab === "Artifacts") {
+      return artifacts.length ? (
+        <div className="kv-grid">
+          {artifacts.map(artifact => <KeyValue key={artifact.name} label={artifact.name} value={artifact.path} />)}
+        </div>
+      ) : <div className="empty">No artifact paths persisted for this object.</div>;
+    }
+    if (activeTab === "Workspace") {
+      if (selected.type === "job") {
+        return (
+          <div className="kv-grid">
+            <KeyValue label="Requested CWD" value={safe(selected.data.requestedCwd, "-")} />
+            <KeyValue label="Effective CWD" value={selected.data.effectiveCwd} />
+            <KeyValue label="Worker Workspace" value={safe(selected.data.workerWorkspaceCwd, "-")} />
+            <KeyValue label="Worker Runtime" value={safe(selected.data.workerRuntimeCwd, "-")} />
+          </div>
+        );
+      }
+      if (selected.type === "session") {
+        return (
+          <div className="kv-grid">
+            <KeyValue label="Effective CWD" value={safe(selected.data.effectiveCwd, "-")} />
+            <KeyValue label="Worktree" value={safe(selected.data.worktreePath, "-")} />
+            <KeyValue label="Runtime CWD" value={safe(selected.data.runtimeCwd, "-")} />
+            <KeyValue label="TMUX" value={`${safe(selected.data.tmuxSession, "-")} ${safe(selected.data.tmuxWindow, "-")}`} />
+          </div>
+        );
+      }
+      return <div className="empty">Workspace details are not applicable for this object.</div>;
+    }
+    if (activeTab === "Result") {
+      return selected.type === "job" && selected.data.result
+        ? <pre className="raw">{JSON.stringify(selected.data.result, null, 2)}</pre>
+        : <div className="empty">No structured result is persisted for this job.</div>;
+    }
+    if (activeTab === "Callback") {
+      if (selected.type !== "job") return <div className="empty">Callback view is only available for jobs.</div>;
+      return callbackForJob
+        ? <pre className="raw">{JSON.stringify(callbackForJob, null, 2)}</pre>
+        : <div className="empty">No callback report persisted for this job.</div>;
+    }
+    if (activeTab === "stdout") {
+      return stdoutArtifact
+        ? <div className="kv-grid"><KeyValue label="stdout artifact" value={stdoutArtifact.path} /></div>
+        : <div className="empty">No stdout artifact path is persisted for this object.</div>;
+    }
+    if (activeTab === "stderr") {
+      return stderrArtifact
+        ? <div className="kv-grid"><KeyValue label="stderr artifact" value={stderrArtifact.path} /></div>
+        : <div className="empty">No stderr artifact path is persisted for this object.</div>;
+    }
+    if (activeTab === "Session Info") {
+      return <pre className="raw">{JSON.stringify(selected.data, null, 2)}</pre>;
+    }
+    if (activeTab === "Bound Jobs") {
+      return sessionJobs.length
+        ? <pre className="raw">{JSON.stringify(sessionJobs, null, 2)}</pre>
+        : <div className="empty">No jobs link to this provider session.</div>;
+    }
+    if (activeTab === "Resume Info") {
+      return (
+        <div className="kv-grid">
+          <KeyValue label="Provider Session ID" value={safe(selected.data.providerSessionId, "unavailable")} />
+          <KeyValue label="Session Mode" value={selected.data.sessionMode} />
+          <KeyValue label="Resume Supported" value={selected.data.resumeSupported ? "yes" : "no"} />
+          <KeyValue label="Agent Session ID" value={safe(selected.data.agentSessionId, "-")} />
+        </div>
+      );
+    }
+    if (activeTab === "Dependencies") {
+      return (
+        <div className="kv-grid">
+          <KeyValue label="Blocked By" value={(selected.data.blockedBy || []).join(", ") || "-"} />
+          <KeyValue label="Blocks" value={(selected.data.blocks || []).join(", ") || "-"} />
+        </div>
+      );
+    }
+    if (activeTab === "Latest Coding") {
+      return coding
+        ? <pre className="raw">{JSON.stringify(coding, null, 2)}</pre>
+        : <div className="empty">This task has no persisted coding summary.</div>;
+    }
+    if (activeTab === "Leader Decisions") {
+      return coding
+        ? <div className="kv-grid">
+            <KeyValue label="Decision" value={safe(coding.decision, "-")} />
+            <KeyValue label="Status" value={safe(coding.status, "-")} />
+            <KeyValue label="Summary" value={safe(coding.summary, "-")} />
+          </div>
+        : <div className="empty">No leader-facing coding decision is persisted for this task.</div>;
+    }
+    return <pre className="raw">{JSON.stringify(selected.data, null, 2)}</pre>;
+  }
+
   return (
-    <div style={S.container}>
-      <div style={S.teamInfo}>
-        <span style={S.teamName}>{team.name}</span>
-        <span style={S.teamMeta}>
-          led by {team.leaderName || '?'} &middot; {members.length} member{members.length !== 1 ? 's' : ''}
-          {team.description ? ` \u2014 ${team.description}` : ''}
-        </span>
+    <aside className="drawer">
+      <div className="drawer-head">
+        <div className="hero-label">Detail Drawer</div>
+        <h2>{selected.type}: {selected.id}</h2>
       </div>
-      <SummaryCards summary={taskSummary} />
-      <Members members={members} />
-      <CodingJobs coding={coding} />
-      <Messages messages={messages} />
-      <Kanban tasks={tasks} />
+      <div className="tabs">
+        {tabs.map(tab => (
+          <button key={tab} className={`tab ${activeTab === tab ? "active" : ""}`} onClick={() => setActiveTab(tab)}>
+            {tab}
+          </button>
+        ))}
+      </div>
+      <div className="drawer-body">
+        {renderTab()}
+      </div>
+    </aside>
+  );
+}
+
+function Dashboard({ data, selected, onSelect, query, lastRefresh }) {
+  const cards = buildHealthCards(data);
+  return (
+    <div className="shell">
+      <section className="hero">
+        <div className="hero-panel">
+          <div className="hero-label">Runtime Console</div>
+          <h2 className="hero-title">{data.team.name}</h2>
+          <div className="hero-meta">
+            leader={safe(data.team.leaderName, "unknown")}<br />
+            {data.team.description || "No team description was persisted."}<br />
+            workers, tasks, coding jobs, provider sessions, callbacks, faults, and timeline are rendered from durable state.
+          </div>
+        </div>
+        <div className="hero-panel truth-box">
+          <div className="truth-line">
+            Source of truth: persisted task files, coding jobs/results/events/artifacts, provider sessions, callback reports, runtime faults, and runtime timeline.
+          </div>
+          <div className="truth-line">
+            Unknown session identity is explicit: <strong>providerSessionId = unavailable</strong>, <strong>sessionMode = ephemeral</strong>, <strong>resumeSupported = no</strong>.
+          </div>
+          <div className="truth-line">
+            Current payload includes {data.runtimeConsole?.timeline?.length || 0} timeline events and {data.runtimeConsole?.faults?.length || 0} runtime faults.
+          </div>
+          <div className="truth-line">
+            Last refresh: {lastRefresh || "--"} | Search filter: {query ? `"${query}"` : "none"}
+          </div>
+        </div>
+      </section>
+
+      <section className="health-grid">
+        {cards.map(card => (
+          <div className="health-card" key={card.label}>
+            <div className="label">{card.label}</div>
+            <div className="value" style={{ color: card.color }}>{card.value}</div>
+            <div className="meta">{card.meta}</div>
+          </div>
+        ))}
+      </section>
+
+      <section className="dashboard">
+        <div className="main-column">
+          <div className="panel-grid">
+            <WorkersPanel data={data} selected={selected} onSelect={onSelect} query={query} />
+            <TasksPanel data={data} selected={selected} onSelect={onSelect} query={query} />
+            <RuntimePanel data={data} selected={selected} onSelect={onSelect} query={query} />
+          </div>
+          <TimelinePanel data={data} selected={selected} onSelect={onSelect} query={query} />
+        </div>
+        <DetailDrawer data={data} selected={selected} />
+      </section>
     </div>
   );
 }
 
 function App() {
   const [teams, setTeams] = useState([]);
-  const [current, setCurrent] = useState('');
+  const [currentTeam, setCurrentTeam] = useState("");
   const [data, setData] = useState(null);
+  const [selected, setSelected] = useState(null);
   const [connected, setConnected] = useState(false);
-  const evtRef = useRef(null);
+  const [query, setQuery] = useState("");
+  const [errorMessage, setErrorMessage] = useState("");
+  const [lastRefresh, setLastRefresh] = useState("");
+  const sourceRef = useRef(null);
+
+  useDefaultSelection(data, selected, setSelected);
 
   useEffect(() => {
-    fetch('/api/overview').then(r => r.json()).then(list => {
-      setTeams(list);
-      if (list.length === 1) setCurrent(list[0].name);
-    }).catch(() => {});
+    fetch("/api/overview")
+      .then(response => response.json())
+      .then(payload => {
+        setTeams(payload);
+        if (payload.length === 1) {
+          setCurrentTeam(payload[0].name);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (evtRef.current) { evtRef.current.close(); evtRef.current = null; }
-    if (!current) { setData(null); setConnected(false); return; }
+    if (sourceRef.current) {
+      sourceRef.current.close();
+      sourceRef.current = null;
+    }
+    if (!currentTeam) {
+      setConnected(false);
+      setData(null);
+      setSelected(null);
+      setErrorMessage("");
+      return;
+    }
 
-    const src = new EventSource('/api/events/' + encodeURIComponent(current));
-    src.onmessage = e => {
-      const d = JSON.parse(e.data);
-      if (!d.error) { setData(d); setConnected(true); }
+    const source = new EventSource("/api/events/" + encodeURIComponent(currentTeam));
+    source.onmessage = event => {
+      const payload = JSON.parse(event.data);
+      if (payload.error) {
+        setErrorMessage(payload.error);
+        setConnected(false);
+        return;
+      }
+      setErrorMessage("");
+      setData(payload);
+      setConnected(true);
+      setLastRefresh(new Date().toISOString().slice(11, 19));
     };
-    src.onerror = () => setConnected(false);
-    evtRef.current = src;
-    return () => src.close();
-  }, [current]);
+    source.onerror = () => {
+      setConnected(false);
+      setErrorMessage("Event stream disconnected. Waiting for the next durable-state refresh.");
+    };
+    sourceRef.current = source;
+    return () => source.close();
+  }, [currentTeam]);
+
+  function handleSelect(type, id, record) {
+    setSelected({ type, id, data: record });
+  }
 
   return (
     <>
-      <nav style={S.nav}>
-        <span style={S.navTitle}>ClawTeam</span>
-        <select style={S.select} value={current} onChange={e => setCurrent(e.target.value)}>
-          <option value="">Select Team</option>
-          {teams.map(t => (
-            <option key={t.name} value={t.name}>
-              {t.name}{t.description ? ` \u2014 ${t.description}` : ''}
+      <header className="topbar">
+        <div className="brand">
+          <h1>ClawTeam</h1>
+          <span>Professional operator console for durable runtime state</span>
+        </div>
+        <select className="team-select" value={currentTeam} onChange={event => setCurrentTeam(event.target.value)}>
+          <option value="">Select team</option>
+          {teams.map(team => (
+            <option key={team.name} value={team.name}>
+              {team.name}{team.description ? ` - ${team.description}` : ""}
             </option>
           ))}
         </select>
-        <div style={{display:'flex',alignItems:'center',marginLeft:'auto'}}>
-          <div style={S.statusDot(connected)} />
-          <span style={S.statusText}>{connected ? 'Live' : 'Disconnected'}</span>
+        <input
+          className="search-input"
+          placeholder="Search runtime objects"
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+        />
+        <div className="status-pill">
+          <span className="status-dot" style={{ background: connected ? "var(--green)" : "var(--red)" }}></span>
+          <span>{connected ? "Live runtime stream" : "Disconnected"}</span>
         </div>
-      </nav>
-      {data ? <Dashboard data={data} /> : (
-        <div style={{...S.container, textAlign:'center', paddingTop:120}}>
-          <div style={{fontSize:48, fontWeight:700, letterSpacing:'-0.04em', color:'var(--text)'}}>
-            ClawTeam
-          </div>
-          <div style={{fontSize:15, color:'var(--text-tertiary)', marginTop:8}}>
-            Select a team to get started
-          </div>
+      </header>
+      {data ? <Dashboard data={data} selected={selected} onSelect={handleSelect} query={query} lastRefresh={lastRefresh} /> : (
+        <div className="shell">
+          <section className="hero">
+            <div className="hero-panel">
+              <div className="hero-label">Runtime Console</div>
+              <h2 className="hero-title">Select a team</h2>
+              <div className="hero-meta">
+                {errorMessage || "The Web board consumes the same durable state that powers CLI inspection. Choose a team to render workers, tasks, jobs, provider sessions, callbacks, faults, timeline, and the detail drawer."}
+              </div>
+            </div>
+            <div className="hero-panel truth-box">
+              <div className="truth-line">This board is not authoritative by itself. Durable files and CLI output remain the source of truth.</div>
+            </div>
+          </section>
         </div>
       )}
     </>
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
 </script>
 </body>
 </html>
