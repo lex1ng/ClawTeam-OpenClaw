@@ -84,6 +84,50 @@ clawteam board serve --port 8080
 
 ---
 
+## Coding Callback Runtime
+
+The coding callback runtime treats Claude Code and Codex as externally configured providers. ClawTeam-OpenClaw does not manage their models, profiles, accounts, or provider config. It only chooses the executable, applies startup flags, runs in the worker workspace, captures execution output, and returns a normalized result to the same worker.
+
+V1 runtime constraints:
+
+- `1 worker = 1 active coding job`
+- `1 task = 1 active provider execution`
+- job state is separate from worker decision
+- default execution stays inside the worker worktree/workspace boundary
+- success requires verifiable structured normalization; raw stdout/stderr are still preserved
+
+Persisted coding runtime data lives under:
+
+- `~/.clawteam/coding/jobs/<team>/`
+- `~/.clawteam/coding/results/<team>/`
+- `~/.clawteam/coding/events/<team>/`
+- `~/.clawteam/coding/artifacts/<team>/`
+
+Use `clawteam board show <team>` or `clawteam --json board show <team>` to inspect the latest coding job summaries, storage paths, and task-linked coding metadata.
+
+Example:
+
+```bash
+# Run a coding callback inside the current worker workspace
+clawteam coding exec claude "Implement retry handling for the coding runtime" \
+  --team my-team \
+  --task-id task-123
+
+# Inspect durable job state later
+clawteam coding status <job-id> --team my-team
+clawteam coding wait <job-id> --team my-team
+```
+
+Current V1 limits:
+
+- provider configuration remains external to ClawTeam-OpenClaw
+- success depends on structured result normalization, not exit code alone
+- live cancellation is durable-state only; detached process control is a later version concern
+- CLI/Rich board plus persisted runtime files are the operational source of truth
+- `board serve` is a convenience UI and currently depends on external CDN assets
+
+---
+
 ## Quick Start
 
 ### Option 1: Let the Agent Drive (Recommended)

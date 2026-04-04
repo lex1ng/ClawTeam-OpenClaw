@@ -10,6 +10,8 @@ from clawteam.team.models import (
     TeamConfig,
     TeamMember,
     TeamMessage,
+    WorkerCodingCallbackReport,
+    WorkerCodingDecision,
 )
 
 
@@ -131,3 +133,36 @@ class TestEnums:
         assert MessageType.broadcast.value == "broadcast"
         assert MessageType.join_request.value == "join_request"
         assert MessageType.idle.value == "idle"
+
+    def test_worker_coding_decision_values(self):
+        assert WorkerCodingDecision.report_progress.value == "report_progress"
+        assert WorkerCodingDecision.complete.value == "complete"
+
+
+class TestWorkerCodingCallbackReport:
+    def test_callback_report_aliases_and_summary(self):
+        report = WorkerCodingCallbackReport(
+            taskId="task-1",
+            jobId="job-1",
+            provider="claude",
+            status="completed",
+            decision="report_progress",
+            summary="Implemented feature",
+            artifactPaths={"resultJson": "/tmp/result.json"},
+        )
+        dumped = json.loads(report.model_dump_json(by_alias=True))
+        legacy = WorkerCodingCallbackReport.model_validate(
+            {
+                "taskId": "task-legacy",
+                "jobId": "job-legacy",
+                "provider": "claude",
+                "status": "completed",
+                "decision": "complete",
+                "summary": "done",
+            }
+        )
+        assert dumped["schemaVersion"] == 1
+        assert legacy.schema_version == 1
+        assert dumped["taskId"] == "task-1"
+        assert dumped["jobId"] == "job-1"
+        assert "artifacts=" in report.to_leader_summary()

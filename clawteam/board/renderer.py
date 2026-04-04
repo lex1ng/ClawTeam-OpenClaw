@@ -35,6 +35,7 @@ class BoardRenderer:
         table.add_column("Members", justify="right")
         table.add_column("Tasks", justify="right")
         table.add_column("Pending Msgs", justify="right")
+        table.add_column("Active Coding", justify="right")
 
         for t in teams:
             table.add_row(
@@ -43,6 +44,7 @@ class BoardRenderer:
                 str(t["members"]),
                 str(t["tasks"]),
                 str(t["pendingMessages"]),
+                str(t.get("activeCodingJobs", 0)),
             )
         self.console.print(table)
 
@@ -85,6 +87,7 @@ class BoardRenderer:
         members = data["members"]
         tasks = data["tasks"]
         summary = data["taskSummary"]
+        coding = data.get("coding", {})
 
         parts = []
 
@@ -96,6 +99,7 @@ class BoardRenderer:
         )
         cost = data.get("cost", {})
         total_cents = cost.get("totalCostCents", 0)
+        active_coding = coding.get("summary", {}).get("active", 0)
         if total_cents > 0:
             budget_cents = team.get("budgetCents", 0)
             if budget_cents > 0:
@@ -105,6 +109,8 @@ class BoardRenderer:
         desc = team.get("description", "")
         if desc:
             header_text = f"{desc}\n{header_text}"
+        if active_coding > 0:
+            header_text += f"  |  Active coding jobs: [magenta]{active_coding}[/magenta]"
         parts.append(Panel(header_text, title=f"Team: {team['name']}", border_style="bright_blue"))
 
         # 2. Members table
@@ -129,10 +135,62 @@ class BoardRenderer:
             mem_table.add_row(*row)
         parts.append(mem_table)
 
-        # 3. Task board (4-column kanban)
+        # 3. Coding jobs summary
+        parts.append(self._build_coding_panel(coding))
+
+        # 4. Task board (4-column kanban)
         parts.append(self._build_task_kanban(tasks, summary))
 
         return Group(*parts)
+
+    def _build_coding_panel(self, coding: dict) -> Panel:
+        summary = coding.get("summary", {})
+        jobs = coding.get("recentJobs", [])
+        faults = coding.get("faults", [])
+        storage = coding.get("storage", {})
+        lines = [
+            (
+                f"active={summary.get('active', 0)}  queued={summary.get('queued', 0)}  "
+                f"running={summary.get('running', 0)}  completed={summary.get('completed', 0)}  "
+                f"failed={summary.get('failed', 0)}  timeout={summary.get('timeout', 0)}  "
+                f"cancelled={summary.get('cancelled', 0)}"
+            ),
+        ]
+        if faults:
+            lines.append(f"[red]faults={len(faults)}[/red]")
+            for fault in faults[:3]:
+                lines.append(f"[red]- {fault.get('faultType', 'fault')}[/red] {fault.get('message', '')}")
+        if jobs:
+            lines.append("")
+            for job in jobs[:5]:
+                lines.append(
+                    f"[bold]{job['jobId']}[/bold]  {job['workerName']}  "
+                    f"{job['provider']}  [{self._coding_state_style(job['state'])}]{job['state']}[/]  "
+                    f"{job['effectiveCwd']}"
+                )
+                if job.get("summary"):
+                    lines.append(f"  {job['summary']}")
+                lines.append(f"  updated: {job['updatedAt'][:19]}")
+        else:
+            lines.append("")
+            lines.append("[dim]No coding jobs recorded[/dim]")
+        if storage:
+            lines.append("")
+            lines.append(f"[dim]jobs: {storage.get('jobsRoot', '')}[/dim]")
+            lines.append(f"[dim]results: {storage.get('resultsRoot', '')}[/dim]")
+            lines.append(f"[dim]artifacts: {storage.get('artifactsRoot', '')}[/dim]")
+        return Panel("\n".join(lines), title="Coding Runtime", border_style="magenta")
+
+    def _coding_state_style(self, state: str) -> str:
+        mapping = {
+            "queued": "yellow",
+            "running": "cyan",
+            "completed": "green",
+            "failed": "red",
+            "timeout": "red",
+            "cancelled": "dim",
+        }
+        return mapping.get(state, "white")
 
     def _build_task_kanban(self, tasks: dict, summary: dict) -> Panel:
         """Build the 4-column kanban task board."""
@@ -158,6 +216,14 @@ class BoardRenderer:
                     lines.append(f"  locked by: [yellow]{t['lockedBy']}[/yellow]")
                 if key == "blocked" and t.get("blockedBy"):
                     lines.append(f"  blocked by: {', '.join(t['blockedBy'])}")
+                coding = t.get("metadata", {}).get("coding")
+                if coding:
+                    lines.append(
+                        f"  coding: [magenta]{coding.get('provider', '-')}[/magenta] "
+                        f"{coding.get('status', '-')}  job={coding.get('latestJobId', '-')}"
+                    )
+                    if coding.get("summary"):
+                        lines.append(f"  summary: {coding['summary']}")
                 lines.append("")
 
             body = "\n".join(lines).rstrip() if lines else "[dim]  (none)[/dim]"

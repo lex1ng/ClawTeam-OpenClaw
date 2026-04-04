@@ -4,14 +4,78 @@ from __future__ import annotations
 
 import json
 
+from clawteam.coding import ACTIVE_CODING_JOB_STATES, CodingJobStore
 from clawteam.spawn.registry import is_agent_alive
 from clawteam.team.mailbox import MailboxManager
 from clawteam.team.manager import TeamManager
+from clawteam.team.models import get_data_dir
 from clawteam.team.tasks import TaskStore
 
 
 class BoardCollector:
     """Aggregates team/task/inbox data into plain dicts."""
+
+    def _collect_coding(self, team_name: str) -> dict:
+        store = CodingJobStore()
+        jobs, faults = store.inspect_jobs(team_name)
+        jobs = sorted(
+            jobs,
+            key=lambda job: job.updated_at,
+            reverse=True,
+        )
+        summary = {
+            "queued": 0,
+            "running": 0,
+            "completed": 0,
+            "failed": 0,
+            "timeout": 0,
+            "cancelled": 0,
+            "active": 0,
+            "total": len(jobs),
+        }
+        recent_jobs = []
+        latest_by_worker: dict[str, dict] = {}
+        for job in jobs:
+            entry = {
+                "jobId": job.job_id,
+                "workerName": job.worker_name,
+                "workerId": job.worker_id,
+                "taskId": job.task_id,
+                "provider": job.provider.value,
+                "mode": job.mode.value,
+                "state": job.state.value,
+                "requestedCwd": job.requested_cwd,
+                "effectiveCwd": job.effective_cwd,
+                "summary": job.summary,
+                "error": job.error,
+                "createdAt": job.created_at,
+                "updatedAt": job.updated_at,
+                "startedAt": job.started_at,
+                "finishedAt": job.finished_at,
+                "attemptKind": job.attempt_kind.value,
+                "retryCount": job.retry_count,
+                "replayCount": job.replay_count,
+                "artifactPaths": job.artifact_paths,
+            }
+            summary[job.state.value] += 1
+            if job.state in ACTIVE_CODING_JOB_STATES:
+                summary["active"] += 1
+            recent_jobs.append(entry)
+            latest_by_worker.setdefault(job.worker_name, entry)
+
+        data_root = get_data_dir() / "coding"
+        return {
+            "summary": summary,
+            "recentJobs": recent_jobs[:20],
+            "latestByWorker": latest_by_worker,
+            "faults": faults,
+            "storage": {
+                "jobsRoot": str(data_root / "jobs" / team_name),
+                "resultsRoot": str(data_root / "results" / team_name),
+                "eventsRoot": str(data_root / "events" / team_name),
+                "artifactsRoot": str(data_root / "artifacts" / team_name),
+            },
+        }
 
     def collect_team(self, team_name: str) -> dict:
         """Collect full board data for a single team.
@@ -94,6 +158,8 @@ class BoardCollector:
         except Exception:
             pass
 
+        coding_data = self._collect_coding(team_name)
+
         return {
             "team": {
                 "name": config.name,
@@ -108,6 +174,7 @@ class BoardCollector:
             "taskSummary": summary,
             "messages": all_messages,
             "cost": cost_data,
+            "coding": coding_data,
         }
 
     def collect_overview(self) -> list[dict]:
@@ -131,6 +198,7 @@ class BoardCollector:
                     "members": len(data["members"]),
                     "tasks": data["taskSummary"]["total"],
                     "pendingMessages": total_inbox,
+                    "activeCodingJobs": data.get("coding", {}).get("summary", {}).get("active", 0),
                 })
             except Exception:
                 result.append({
@@ -140,5 +208,6 @@ class BoardCollector:
                     "members": meta.get("memberCount", 0),
                     "tasks": 0,
                     "pendingMessages": 0,
+                    "activeCodingJobs": 0,
                 })
         return result

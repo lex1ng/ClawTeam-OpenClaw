@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from clawteam.team.models import TaskItem, TaskStatus
+from clawteam.team.models import TaskItem, TaskStatus, WorkerCodingCallbackReport, WorkerCodingDecision
 from clawteam.team.tasks import TaskLockError, TaskStore
 
 
@@ -310,3 +310,25 @@ class TestGetStats:
         stats = store.get_stats()
         assert stats["completed"] == 2
         assert stats["timed_completed"] == 1
+
+
+class TestCodingCallbackMetadata:
+    def test_record_coding_callback_updates_task_metadata(self, store):
+        task = store.create("coding task")
+        report = WorkerCodingCallbackReport(
+            taskId=task.id,
+            jobId="job-1",
+            provider="claude",
+            status="completed",
+            decision=WorkerCodingDecision.report_progress,
+            summary="Implemented feature",
+            artifactPaths={"resultJson": "/tmp/result.json"},
+        )
+
+        updated = store.record_coding_callback(task.id, report)
+
+        assert updated is not None
+        assert updated.metadata["coding"]["latestJobId"] == "job-1"
+        assert updated.metadata["coding"]["decision"] == "report_progress"
+        assert updated.metadata["codingHistory"][0]["schemaVersion"] == 1
+        assert updated.metadata["codingHistory"][0]["jobId"] == "job-1"

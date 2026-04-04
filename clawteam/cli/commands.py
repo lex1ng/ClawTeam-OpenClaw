@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 import time
 import uuid
@@ -14,6 +15,7 @@ from rich.console import Console
 from rich.table import Table
 
 from clawteam import __version__
+from clawteam.team.manager import TeamManager
 
 app = typer.Typer(
     name="clawteam",
@@ -1279,6 +1281,261 @@ def _print_incomplete_tasks(task_details: list[dict]):
 
 
 # ============================================================================
+# Coding Runtime Commands
+# ============================================================================
+
+coding_app = typer.Typer(help="Coding callback runtime commands")
+app.add_typer(coding_app, name="coding")
+
+
+def _resolve_coding_team(team: Optional[str]) -> str:
+    from clawteam.identity import AgentIdentity
+
+    identity = AgentIdentity.from_env()
+    team_name = team or identity.team_name
+    if not team_name:
+        raise typer.BadParameter(
+            "Team name is required. Pass --team or set CLAWTEAM_TEAM_NAME."
+        )
+    return team_name
+
+
+def _coding_result_human(data: dict):
+    console.print(
+        f"Job: [cyan]{data['jobId']}[/cyan]  "
+        f"Provider: {data['provider']}  "
+        f"Status: [bold]{data['status']}[/bold]"
+    )
+    console.print(f"CWD: {data['effectiveCwd']}")
+    if data.get("summary"):
+        console.print(f"Summary: {data['summary']}")
+    if data.get("error"):
+        console.print(f"Error: [red]{data['error']}[/red]")
+    if data.get("artifacts"):
+        console.print(f"Artifacts: {json.dumps(data['artifacts'], ensure_ascii=False)}")
+
+
+def _coding_record_human(data: dict):
+    startup_policy = data.get("startupPolicy") or {}
+    applied_flags = startup_policy.get("appliedFlags", [])
+    extra_args = startup_policy.get("extraArgs", [])
+    skip_permissions = startup_policy.get("skipProviderPermissions")
+    dangerous_skip_enabled = "--dangerously-skip-permissions" in applied_flags
+    console.print(
+        f"Job: [cyan]{data['jobId']}[/cyan]  "
+        f"Provider: {data['provider']}  "
+        f"State: [bold]{data['state']}[/bold]"
+    )
+    console.print(f"Worker: {data['workerName']} ({data['workerId']})")
+    console.print(f"Task: {data.get('taskId') or '-'}")
+    console.print(f"Leader: {data.get('leaderName') or '-'}")
+    console.print(
+        "Attempt: "
+        f"{data.get('attemptKind', '-')}  "
+        f"retry={data.get('retryCount', 0)}  "
+        f"replay={data.get('replayCount', 0)}"
+    )
+    console.print(f"Requested CWD: {data.get('requestedCwd') or '-'}")
+    console.print(f"Effective CWD: {data['effectiveCwd']}")
+    console.print(
+        "Startup Policy: "
+        f"source={startup_policy.get('source', '-')}  "
+        f"skipProviderPermissions={skip_permissions}"
+    )
+    console.print(
+        "--dangerously-skip-permissions: "
+        f"{'enabled' if dangerous_skip_enabled else 'disabled'}"
+    )
+    console.print(f"Applied Flags: {json.dumps(applied_flags, ensure_ascii=False)}")
+    console.print(f"Extra Args: {json.dumps(extra_args, ensure_ascii=False)}")
+    console.print(f"Created: {data['createdAt']}  Updated: {data['updatedAt']}")
+    if data.get("summary"):
+        console.print(f"Summary: {data['summary']}")
+    if data.get("error"):
+        console.print(f"Error: [red]{data['error']}[/red]")
+    if data.get("artifactPaths"):
+        console.print(f"Artifacts: {json.dumps(data['artifactPaths'], ensure_ascii=False)}")
+
+
+@coding_app.command("exec")
+def coding_exec(
+    provider: str = typer.Argument(..., help="Provider name: claude or codex"),
+    prompt: str = typer.Argument(..., help="Prompt to send to the coding provider"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+    worker_name: Optional[str] = typer.Option(
+        None,
+        "--worker-name",
+        help="Worker name (defaults from env)",
+    ),
+    worker_id: Optional[str] = typer.Option(
+        None,
+        "--worker-id",
+        help="Worker id (defaults from env)",
+    ),
+    leader_name: Optional[str] = typer.Option(None, "--leader-name", help="Leader name"),
+    task_id: Optional[str] = typer.Option(None, "--task-id", help="Optional task id"),
+    mode: str = typer.Option("implement", "--mode", help="Execution mode"),
+    cwd: Optional[str] = typer.Option(None, "--cwd", help="Per-call cwd override"),
+    worker_workspace_cwd: Optional[str] = typer.Option(
+        None,
+        "--worker-workspace-cwd",
+        help="Worker workspace/worktree cwd",
+    ),
+    worker_runtime_cwd: Optional[str] = typer.Option(
+        None,
+        "--worker-runtime-cwd",
+        help="Worker runtime cwd",
+    ),
+    timeout_sec: int = typer.Option(1800, "--timeout-sec", help="Provider timeout in seconds"),
+    allow_cwd_escape: bool = typer.Option(
+        False,
+        "--allow-cwd-escape",
+        help="Explicitly allow cwd override outside the worker workspace boundary.",
+    ),
+    skip_provider_permissions: Optional[bool] = typer.Option(
+        None,
+        "--skip-provider-permissions/--no-skip-provider-permissions",
+        help="Override provider permission-skip startup policy",
+    ),
+    provider_args: Optional[list[str]] = typer.Option(
+        None,
+        "--provider-arg",
+        help="Extra provider arg; repeat for multiple values.",
+    ),
+):
+    """Execute a coding callback job; V1 allows one active job per worker and per task."""
+    import os
+
+    from clawteam.coding import CodingExecRequest, CodingService
+    from clawteam.identity import AgentIdentity
+    from clawteam.team.manager import TeamManager
+
+    identity = AgentIdentity.from_env()
+    team_name = _resolve_coding_team(team)
+    leader = leader_name or TeamManager.get_leader_name(team_name)
+    request = CodingExecRequest(
+        teamName=team_name,
+        workerName=worker_name or identity.agent_name,
+        workerId=worker_id or identity.agent_id,
+        leaderName=leader,
+        taskId=task_id,
+        provider=provider,
+        mode=mode,
+        prompt=prompt,
+        cwd=cwd,
+        workerWorkspaceCwd=worker_workspace_cwd or os.environ.get("CLAWTEAM_WORKSPACE_DIR"),
+        workerRuntimeCwd=worker_runtime_cwd or os.getcwd(),
+        allowCwdEscape=allow_cwd_escape,
+        timeoutSec=timeout_sec,
+        skipProviderPermissions=skip_provider_permissions,
+        providerArgs=provider_args or [],
+    )
+    try:
+        result = CodingService().execute(request)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    _output(_dump(result), _coding_result_human)
+
+
+@coding_app.command("status")
+def coding_status(
+    job_id: str = typer.Argument(..., help="Coding job id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """Show persisted coding job state."""
+    from clawteam.coding import CodingService
+
+    team_name = _resolve_coding_team(team)
+    try:
+        record = CodingService().require_job(team_name, job_id)
+    except ValueError as exc:
+        _output({"error": str(exc)}, lambda d: console.print(f"[red]{d['error']}[/red]"))
+        raise typer.Exit(1)
+    _output(_dump(record), _coding_record_human)
+
+
+@coding_app.command("wait")
+def coding_wait(
+    job_id: str = typer.Argument(..., help="Coding job id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+    poll_interval: float = typer.Option(1.0, "--poll-interval", help="Seconds between polls"),
+    timeout: Optional[float] = typer.Option(None, "--timeout", help="Max seconds to wait"),
+):
+    """Wait for a coding job to reach a terminal state using persisted job state."""
+    from clawteam.coding import CodingService, TERMINAL_CODING_JOB_STATES
+
+    team_name = _resolve_coding_team(team)
+    service = CodingService()
+    started_at = time.monotonic()
+    while True:
+        try:
+            record = service.require_job(team_name, job_id)
+        except ValueError as exc:
+            _output({"error": str(exc)}, lambda d: console.print(f"[red]{d['error']}[/red]"))
+            raise typer.Exit(1)
+        if record.state in TERMINAL_CODING_JOB_STATES:
+            _output(_dump(record), _coding_record_human)
+            return
+        if timeout is not None and (time.monotonic() - started_at) >= timeout:
+            _output(_dump(record), _coding_record_human)
+            raise typer.Exit(1)
+        time.sleep(poll_interval)
+
+
+@coding_app.command("cancel")
+def coding_cancel(
+    job_id: str = typer.Argument(..., help="Coding job id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+    reason: str = typer.Option("", "--reason", help="Cancellation reason"),
+):
+    """Cancel a queued or running coding job in durable state."""
+    from clawteam.coding import CodingService
+
+    team_name = _resolve_coding_team(team)
+    try:
+        record = CodingService().cancel_job(team_name, job_id, reason=reason)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    _output(_dump(record), _coding_record_human)
+
+
+@coding_app.command("retry")
+def coding_retry(
+    job_id: str = typer.Argument(..., help="Source coding job id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """Retry a job from persisted request data after infrastructure failure."""
+    from clawteam.coding import CodingService
+
+    team_name = _resolve_coding_team(team)
+    try:
+        result = CodingService().retry_job(team_name, job_id)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    _output(_dump(result), _coding_result_human)
+
+
+@coding_app.command("replay")
+def coding_replay(
+    job_id: str = typer.Argument(..., help="Source coding job id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+):
+    """Replay a job from persisted request data with a fresh explicit execution."""
+    from clawteam.coding import CodingService
+
+    team_name = _resolve_coding_team(team)
+    try:
+        result = CodingService().replay_job(team_name, job_id)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(1)
+    _output(_dump(result), _coding_result_human)
+
+
+# ============================================================================
 # Session Commands
 # ============================================================================
 
@@ -1982,7 +2239,7 @@ def board_serve(
     host: str = typer.Option("127.0.0.1", "--host", help="Bind address"),
     interval: float = typer.Option(2.0, "--interval", "-i", help="SSE push interval in seconds"),
 ):
-    """Start Web UI dashboard server."""
+    """Start the convenience Web UI; CLI/Rich board and persisted state remain authoritative."""
     from clawteam.board.server import serve
 
     console.print(f"Starting Web UI on http://{host}:{port}")

@@ -11,7 +11,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from clawteam.team.models import TaskItem, TaskStatus, get_data_dir
+from clawteam.team.models import (
+    TaskItem,
+    TaskStatus,
+    WorkerCodingCallbackReport,
+    get_data_dir,
+)
 
 
 class TaskLockError(Exception):
@@ -242,6 +247,34 @@ class TaskStore:
             "timed_completed": len(durations),
             "avg_duration_seconds": round(avg_duration, 2),
         }
+
+    def record_coding_callback(
+        self,
+        task_id: str,
+        report: WorkerCodingCallbackReport,
+    ) -> TaskItem | None:
+        """Persist the latest coding callback summary onto task metadata."""
+        with self._write_lock():
+            task = self._get_unlocked(task_id)
+            if not task:
+                return None
+            callback_summary = json.loads(report.model_dump_json(by_alias=True, exclude_none=True))
+            coding_meta = {
+                "latestJobId": report.job_id,
+                "provider": report.provider,
+                "status": report.status,
+                "decision": report.decision.value,
+                "summary": report.summary,
+                "artifactPaths": dict(report.artifact_paths),
+                "reportedAt": report.reported_at,
+            }
+            history = list(task.metadata.get("codingHistory", []))
+            history.append(callback_summary)
+            task.metadata["coding"] = coding_meta
+            task.metadata["codingHistory"] = history
+            task.updated_at = _now_iso()
+            self._save_unlocked(task)
+            return task
 
     def _save_unlocked(self, task: TaskItem) -> None:
         path = _task_path(self.team_name, task.id)

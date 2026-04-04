@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -53,6 +54,17 @@ class MessageType(str, Enum):
     shutdown_rejected = "shutdown_rejected"
     idle = "idle"
     broadcast = "broadcast"
+
+
+class WorkerCodingDecision(str, Enum):
+    continue_ = "continue"
+    report_progress = "report_progress"
+    escalate = "escalate"
+    complete = "complete"
+    blocked = "blocked"
+
+
+PERSISTED_CALLBACK_SCHEMA_VERSION = 1
 
 
 class TeamMember(BaseModel):
@@ -132,3 +144,66 @@ class TaskItem(BaseModel):
     created_at: str = Field(default_factory=_now_iso, alias="createdAt")
     updated_at: str = Field(default_factory=_now_iso, alias="updatedAt")
     metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkerCodingCallbackReport(BaseModel):
+    """Structured summary that a worker can send upward after `coding_exec` returns."""
+
+    model_config = {"populate_by_name": True}
+
+    schema_version: int = Field(default=PERSISTED_CALLBACK_SCHEMA_VERSION, alias="schemaVersion", ge=1)
+    task_id: str | None = Field(default=None, alias="taskId")
+    job_id: str = Field(alias="jobId")
+    provider: str
+    status: str
+    decision: WorkerCodingDecision
+    summary: str
+    artifact_paths: dict[str, str] = Field(default_factory=dict, alias="artifactPaths")
+    next_step: str = Field(default="", alias="nextStep")
+    escalation_reason: str | None = Field(default=None, alias="escalationReason")
+    reported_at: str = Field(default_factory=_now_iso, alias="reportedAt")
+
+    @classmethod
+    def from_coding_result(
+        cls,
+        *,
+        task_id: str | None,
+        job_id: str,
+        provider: str,
+        status: str,
+        decision: WorkerCodingDecision,
+        summary: str,
+        artifact_paths: dict[str, str] | None = None,
+        next_step: str = "",
+        escalation_reason: str | None = None,
+    ) -> "WorkerCodingCallbackReport":
+        return cls(
+            taskId=task_id,
+            jobId=job_id,
+            provider=provider,
+            status=status,
+            decision=decision,
+            summary=summary,
+            artifactPaths=artifact_paths or {},
+            nextStep=next_step,
+            escalationReason=escalation_reason,
+        )
+
+    def to_leader_summary(self) -> str:
+        parts = [
+            "Coding callback report:",
+            f"job={self.job_id}",
+            f"provider={self.provider}",
+            f"status={self.status}",
+            f"decision={self.decision.value}",
+        ]
+        if self.task_id:
+            parts.append(f"task={self.task_id}")
+        parts.append(f"summary={self.summary}")
+        if self.next_step:
+            parts.append(f"next={self.next_step}")
+        if self.escalation_reason:
+            parts.append(f"escalation={self.escalation_reason}")
+        if self.artifact_paths:
+            parts.append(f"artifacts={json.dumps(self.artifact_paths, ensure_ascii=False)}")
+        return " | ".join(parts)

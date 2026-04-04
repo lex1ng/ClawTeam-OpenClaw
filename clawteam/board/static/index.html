@@ -5,8 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ClawTeam</title>
 <style>
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
-
   :root {
     --bg: #000000;
     --surface: #0a0a0a;
@@ -30,18 +28,31 @@
   * { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
     -webkit-font-smoothing: antialiased;
   }
+
+  .runtime-notice {
+    padding: 10px 16px;
+    background: #111111;
+    border-bottom: 1px solid var(--border);
+    color: var(--text-secondary);
+    font-size: 12px;
+    line-height: 1.5;
+  }
 </style>
+<!-- Convenience UI only: operational source of truth remains durable state and CLI/Rich board output. -->
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
+<div class="runtime-notice">
+  Web board is a convenience surface. Durable job/task files and CLI or Rich board output remain the source of truth.
+</div>
 <div id="root"></div>
 <script type="text/babel">
 const { useState, useEffect, useRef, useMemo } = React;
@@ -215,6 +226,9 @@ const S = {
   taskOwner: {
     fontSize: 11, color: 'var(--text-tertiary)', marginTop: 4,
   },
+  taskCoding: {
+    fontSize: 11, color: '#d0b3ff', marginTop: 4, lineHeight: 1.4,
+  },
   taskBlocked: {
     fontSize: 11, color: 'var(--red)', marginTop: 2,
   },
@@ -234,6 +248,11 @@ const S = {
   },
   teamMeta: {
     fontSize: 13, color: 'var(--text-tertiary)',
+  },
+  codingMeta: {
+    padding: '16px 20px',
+    fontSize: 12, color: 'var(--text-secondary)',
+    lineHeight: 1.6,
   },
 };
 
@@ -317,7 +336,44 @@ function Messages({ messages }) {
   );
 }
 
+function CodingJobs({ coding }) {
+  const summary = coding?.summary || {};
+  const jobs = coding?.recentJobs || [];
+  const storage = coding?.storage || {};
+  return (
+    <div style={S.section}>
+      <div style={S.sectionHeader}>
+        <span style={S.sectionTitle}>Coding Runtime</span>
+        <span style={S.sectionBadge}>{summary.total || 0}</span>
+      </div>
+      <div style={S.codingMeta}>
+        active={summary.active || 0} queued={summary.queued || 0} running={summary.running || 0} completed={summary.completed || 0} failed={summary.failed || 0} timeout={summary.timeout || 0} cancelled={summary.cancelled || 0}
+        <br />
+        jobs: {storage.jobsRoot || '-'}
+        <br />
+        results: {storage.resultsRoot || '-'}
+        <br />
+        artifacts: {storage.artifactsRoot || '-'}
+        {jobs.length > 0 && (
+          <>
+            <br /><br />
+            {jobs.slice(0, 5).map(job => (
+              <div key={job.jobId} style={{marginBottom: 10}}>
+                <strong>{job.jobId}</strong> {job.workerName} {job.provider} {job.state}
+                <br />
+                {job.effectiveCwd}
+                {job.summary && (<><br />{job.summary}</>)}
+              </div>
+            ))}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function TaskCard({ task, status }) {
+  const coding = task.metadata?.coding;
   return (
     <div style={S.taskCard}
       onMouseEnter={e => e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'}
@@ -325,6 +381,12 @@ function TaskCard({ task, status }) {
       <div style={S.taskId}>#{(task.id || '').slice(0, 8)}</div>
       <div style={S.taskSubject}>{task.subject || ''}</div>
       <div style={S.taskOwner}>{task.owner || '-'}</div>
+      {coding && (
+        <div style={S.taskCoding}>
+          coding: {coding.provider || '-'} {coding.status || '-'} job={coding.latestJobId || '-'}
+          {coding.summary ? ` • ${coding.summary}` : ''}
+        </div>
+      )}
       {status === 'blocked' && task.blockedBy && task.blockedBy.length > 0 && (
         <div style={S.taskBlocked}>blocked by: {task.blockedBy.join(', ')}</div>
       )}
@@ -364,7 +426,7 @@ function Kanban({ tasks }) {
 }
 
 function Dashboard({ data }) {
-  const { team, members = [], tasks = {}, taskSummary = {}, messages = [] } = data;
+  const { team, members = [], tasks = {}, taskSummary = {}, messages = [], coding = {} } = data;
   return (
     <div style={S.container}>
       <div style={S.teamInfo}>
@@ -376,6 +438,7 @@ function Dashboard({ data }) {
       </div>
       <SummaryCards summary={taskSummary} />
       <Members members={members} />
+      <CodingJobs coding={coding} />
       <Messages messages={messages} />
       <Kanban tasks={tasks} />
     </div>
