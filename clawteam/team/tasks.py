@@ -303,7 +303,7 @@ class TaskStore:
         Returns dict with total tasks, completed count, and avg duration
         (only counting tasks that have duration_seconds in metadata).
         """
-        tasks = self.list_tasks()
+        tasks, read_faults = self.inspect_tasks()
         completed = [t for t in tasks if t.status == TaskStatus.completed]
         durations = [
             t.metadata["duration_seconds"]
@@ -319,6 +319,7 @@ class TaskStore:
             "blocked": sum(1 for t in tasks if t.status == TaskStatus.blocked),
             "timed_completed": len(durations),
             "avg_duration_seconds": round(avg_duration, 2),
+            "readFaults": read_faults,
         }
 
     def record_coding_callback(

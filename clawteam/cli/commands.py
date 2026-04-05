@@ -922,13 +922,19 @@ def task_list(
 
     store = TaskStore(team)
     ts = TaskStatus(status) if status else None
-    tasks = store.list_tasks(status=ts, owner=owner)
+    tasks, read_faults = store.inspect_tasks(status=ts, owner=owner)
 
-    data = [_dump(t) for t in tasks]
+    data = {
+        "teamName": team,
+        "tasks": [_dump(t) for t in tasks],
+        "readFaults": read_faults,
+    }
 
     def _human(items):
-        if not items:
+        tasks_payload = items["tasks"]
+        if not tasks_payload:
             console.print("[dim]No tasks found[/dim]")
+            _print_read_faults(items)
             return
         table = Table(title=f"Tasks - {team}")
         table.add_column("ID", style="dim")
@@ -937,7 +943,7 @@ def task_list(
         table.add_column("Owner")
         table.add_column("Lock", style="yellow")
         table.add_column("Blocked By", style="dim")
-        for t in items:
+        for t in tasks_payload:
             st = t.get("status", "")
             style = {"pending": "white", "in_progress": "yellow", "completed": "green", "blocked": "red"}.get(st, "")
             table.add_row(
@@ -949,6 +955,7 @@ def task_list(
                 ", ".join(t.get("blockedBy", [])),
             )
         console.print(table)
+        _print_read_faults(items)
 
     _output(data, _human)
 
@@ -985,6 +992,7 @@ def task_stats(
         else:
             table.add_row("Avg completion time", "-")
         console.print(table)
+        _print_read_faults(d)
 
     _output(stats, _human)
 
@@ -1246,6 +1254,7 @@ def task_wait(
             "blocked": result.blocked,
             "messages_received": result.messages_received,
             "task_details": result.task_details,
+            "readFaults": result.read_faults,
         }), flush=True)
     else:
         console.print()
@@ -1266,6 +1275,7 @@ def task_wait(
                 f" {result.completed}/{result.total} completed."
             )
             _print_incomplete_tasks(result.task_details)
+        _print_read_faults({"readFaults": result.read_faults})
 
     if result.status != "completed":
         raise typer.Exit(1)
@@ -2401,7 +2411,7 @@ def lifecycle_on_exit(
     SessionStore(team).clear(agent)
 
     store = TaskStore(team)
-    tasks = store.list_tasks()
+    tasks, read_faults = store.inspect_tasks()
 
     # Find this agent's in_progress tasks and reset them
     abandoned = [
@@ -2410,6 +2420,21 @@ def lifecycle_on_exit(
     ]
 
     if not abandoned:
+        _output(
+            {
+                "status": "agent_exited",
+                "agent": agent,
+                "abandoned_tasks": [],
+                "readFaults": read_faults,
+            },
+            lambda d: (
+                console.print(
+                    f"[yellow]Agent '{agent}' exited.[/yellow] "
+                    "No in-progress tasks required recovery."
+                ),
+                _print_read_faults(d),
+            ),
+        )
         return
 
     for t in abandoned:
@@ -2450,10 +2475,14 @@ def lifecycle_on_exit(
             "status": "agent_exited",
             "agent": agent,
             "abandoned_tasks": [{"id": t.id, "subject": t.subject} for t in abandoned],
+            "readFaults": read_faults,
         },
-        lambda d: console.print(
-            f"[yellow]Agent '{agent}' exited.[/yellow] "
-            f"Reset {len(d['abandoned_tasks'])} task(s) to pending."
+        lambda d: (
+            console.print(
+                f"[yellow]Agent '{agent}' exited.[/yellow] "
+                f"Reset {len(d['abandoned_tasks'])} task(s) to pending."
+            ),
+            _print_read_faults(d),
         ),
     )
 

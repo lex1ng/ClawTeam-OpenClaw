@@ -25,6 +25,7 @@ class WaitResult:
     blocked: int = 0
     messages_received: int = 0
     task_details: list[dict] = field(default_factory=list)
+    read_faults: list[dict] = field(default_factory=list)
 
 
 class TaskWaiter:
@@ -92,7 +93,7 @@ class TaskWaiter:
                 self._check_dead_agents()
 
                 # 3. Check task status
-                tasks = self.task_store.list_tasks()
+                tasks, read_faults = self.task_store.inspect_tasks()
                 total = len(tasks)
                 completed = sum(1 for t in tasks if t.status == TaskStatus.completed)
                 in_progress = sum(1 for t in tasks if t.status == TaskStatus.in_progress)
@@ -124,6 +125,7 @@ class TaskWaiter:
                         blocked=0,
                         messages_received=self._messages_received,
                         task_details=[_task_summary(t) for t in tasks],
+                        read_faults=read_faults,
                     )
 
                 # 5. Timeout?
@@ -139,6 +141,7 @@ class TaskWaiter:
                         blocked=blocked,
                         messages_received=self._messages_received,
                         task_details=[_task_summary(t) for t in tasks],
+                        read_faults=read_faults,
                     )
 
                 # 6. Sleep
@@ -146,7 +149,7 @@ class TaskWaiter:
 
             # Interrupted
             elapsed = time.monotonic() - start
-            tasks = self.task_store.list_tasks()
+            tasks, read_faults = self.task_store.inspect_tasks()
             total = len(tasks)
             return WaitResult(
                 status="interrupted",
@@ -158,6 +161,7 @@ class TaskWaiter:
                 blocked=sum(1 for t in tasks if t.status == TaskStatus.blocked),
                 messages_received=self._messages_received,
                 task_details=[_task_summary(t) for t in tasks],
+                read_faults=read_faults,
             )
         finally:
             # Restore original signal handlers
@@ -179,7 +183,7 @@ class TaskWaiter:
             self._known_dead.add(agent_name)
 
             # Find this agent's in_progress tasks and reset them
-            tasks = self.task_store.list_tasks()
+            tasks, _ = self.task_store.inspect_tasks()
             abandoned = [
                 t for t in tasks
                 if t.owner == agent_name and t.status == TaskStatus.in_progress
