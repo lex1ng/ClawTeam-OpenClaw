@@ -894,38 +894,25 @@ function DetailDrawer({ data, selected }) {
   const tabs = buildTabs(selected);
   const [activeTab, setActiveTab] = useState(tabs[0]);
   const [artifactPreview, setArtifactPreview] = useState({ status: "idle", payload: null, error: "" });
+  const relatedEvents = relationTimeline(data, selected);
+  const callbacks = data.runtimeConsole?.callbacks || [];
+  const jobs = data.runtimeConsole?.jobs || [];
+  const sessionJobs = selected?.type === "session"
+    ? jobs.filter(job => job.providerSessionRef === selected.id)
+    : [];
+  const callbackForJob = selected?.type === "job"
+    ? callbacks.find(callback => callback.jobId === selected.id)
+    : null;
+  const coding = selected?.type === "task" ? selected.data.metadata?.coding || null : null;
+  const artifacts = relatedArtifacts(selected);
+  const stdoutArtifact = artifacts.find(artifact => artifact.name.toLowerCase().includes("stdout"));
+  const stderrArtifact = artifacts.find(artifact => artifact.name.toLowerCase().includes("stderr"));
+  const stdoutArtifactKey = stdoutArtifact ? `${stdoutArtifact.name}:${stdoutArtifact.path}` : "";
+  const stderrArtifactKey = stderrArtifact ? `${stderrArtifact.name}:${stderrArtifact.path}` : "";
 
   useEffect(() => {
     setActiveTab(tabs[0]);
   }, [selected?.type, selected?.id]);
-
-  if (!selected) {
-    return (
-      <aside className="drawer">
-        <div className="drawer-head">
-          <div className="hero-label">Detail Drawer</div>
-          <h2>Runtime Inspector</h2>
-        </div>
-        <div className="drawer-body">
-          <DrawerEmpty />
-        </div>
-      </aside>
-    );
-  }
-
-  const relatedEvents = relationTimeline(data, selected);
-  const callbacks = data.runtimeConsole?.callbacks || [];
-  const jobs = data.runtimeConsole?.jobs || [];
-  const sessionJobs = selected.type === "session"
-    ? jobs.filter(job => job.providerSessionRef === selected.id)
-    : [];
-  const callbackForJob = selected.type === "job"
-    ? callbacks.find(callback => callback.jobId === selected.id)
-    : null;
-  const coding = selected.type === "task" ? selected.data.metadata?.coding || null : null;
-  const artifacts = relatedArtifacts(selected);
-  const stdoutArtifact = artifacts.find(artifact => artifact.name.toLowerCase().includes("stdout"));
-  const stderrArtifact = artifacts.find(artifact => artifact.name.toLowerCase().includes("stderr"));
 
   useEffect(() => {
     const artifact = activeTab === "stdout" ? stdoutArtifact : activeTab === "stderr" ? stderrArtifact : null;
@@ -948,7 +935,21 @@ function DetailDrawer({ data, selected }) {
         }
       });
     return () => { cancelled = true; };
-  }, [activeTab, data.team.name, selected?.id, selected?.type]);
+  }, [activeTab, data.team.name, selected?.data?.jobId, selected?.id, selected?.type, stdoutArtifactKey, stderrArtifactKey]);
+
+  if (!selected) {
+    return (
+      <aside className="drawer">
+        <div className="drawer-head">
+          <div className="hero-label">Detail Drawer</div>
+          <h2>Runtime Inspector</h2>
+        </div>
+        <div className="drawer-body">
+          <DrawerEmpty />
+        </div>
+      </aside>
+    );
+  }
 
   function summaryView() {
     if (selected.type === "job") {
