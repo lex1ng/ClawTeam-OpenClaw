@@ -107,18 +107,30 @@ class BoardCollector:
                 f"Coding job '{job_id}' has no artifact named '{artifact_name}' for team '{team_name}'"
             )
         path = Path(artifact_path)
+        allowed_root = CodingJobStore().artifact_path(team_name, job_id, artifact_name).parent.resolve()
+        try:
+            resolved_path = path.resolve(strict=False)
+            within_artifact_root = resolved_path.is_relative_to(allowed_root)
+        except OSError:
+            resolved_path = path
+            within_artifact_root = False
         payload = {
             "teamName": team_name,
             "jobId": job_id,
             "name": artifact_name,
             "path": artifact_path,
-            "exists": path.exists(),
+            "exists": False,
             "isBinary": False,
             "truncated": False,
             "content": None,
             "unavailableReason": "",
-            "sizeBytes": path.stat().st_size if path.exists() else None,
+            "sizeBytes": None,
         }
+        if not within_artifact_root:
+            payload["unavailableReason"] = "outside_artifact_root"
+            return payload
+        payload["exists"] = path.exists()
+        payload["sizeBytes"] = path.stat().st_size if path.exists() else None
         if not path.exists():
             payload["unavailableReason"] = "missing_on_disk"
             return payload

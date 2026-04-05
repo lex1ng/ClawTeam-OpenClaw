@@ -36,3 +36,10 @@ def test_runtime_console_web_board_artifact_preview_effect_uses_stable_dependenc
     assert "const stderrArtifactKey = stderrArtifact ? `${stderrArtifact.name}:${stderrArtifact.path}` : \"\";" in html
     assert "stdoutArtifactKey, stderrArtifactKey" in html
     assert "stdoutArtifact, stderrArtifact" not in html
+
+
+def test_runtime_console_web_board_artifact_preview_checks_http_status_before_loading():
+    html = Path("clawteam/board/static/index.html").read_text(encoding="utf-8")
+
+    assert "if (!response.ok) {" in html
+    assert "throw new Error(payload.error || `Artifact preview request failed with status ${response.status}`);" in html

@@ -321,14 +321,37 @@ class RuntimeConsoleService:
         team_name: str,
         report: WorkerCodingCallbackReport,
     ) -> str | None:
-        if report.session_id:
-            return report.session_id
-
         from clawteam.coding.store import CodingJobStore
 
         job = CodingJobStore().get_job(team_name, report.job_id)
-        if job is not None and job.provider_session_ref:
-            return job.provider_session_ref
+        durable_session_id = job.provider_session_ref if job is not None else None
+
+        if report.session_id:
+            if durable_session_id and report.session_id != durable_session_id:
+                self.record_fault(
+                    team_name=team_name,
+                    fault_type="callback_session_link_mismatch",
+                    severity=RuntimeFaultSeverity.warning,
+                    scope_type=RuntimeFaultScopeType.callback,
+                    scope_id=report.job_id,
+                    message=(
+                        f"Callback for job {report.job_id} reported sessionId '{report.session_id}', "
+                        f"but durable providerSessionRef is '{durable_session_id}'."
+                    ),
+                    detail=(
+                        f"taskId={report.task_id or '-'} worker={report.worker_name or '-'} "
+                        f"reportedSessionId={report.session_id} durableSessionId={durable_session_id}"
+                    ),
+                    suggested_action=(
+                        "Inspect worker callback metadata for stale or incorrect session linkage. "
+                        "Runtime Console used the durable job linkage."
+                    ),
+                )
+                return durable_session_id
+            return report.session_id
+
+        if durable_session_id:
+            return durable_session_id
 
         self.record_fault(
             team_name=team_name,

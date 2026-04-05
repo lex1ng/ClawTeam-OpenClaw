@@ -152,3 +152,31 @@ def test_board_server_exposes_runtime_console_api(monkeypatch, tmp_path):
 
         payload = _get_json(base_url, "/api/teams/demo/timeline")
         assert any(event["eventType"] == "callback_reported" for event in payload["events"])
+
+
+def test_board_server_artifact_preview_rejects_paths_outside_job_artifact_root(monkeypatch, tmp_path):
+    _, completed = _seed_board_runtime(monkeypatch, tmp_path)
+
+    outside_path = tmp_path / "outside.txt"
+    outside_path.write_text("secret\n", encoding="utf-8")
+
+    service = CodingService()
+    record = service.store.get_job("demo", completed.job_id)
+    assert record is not None
+    mutated = record.model_copy(
+        update={
+            "artifact_paths": {
+                **record.artifact_paths,
+                "stdoutLog": str(outside_path),
+            }
+        }
+    )
+    service.store.save_job(mutated)
+
+    with _running_board_server() as base_url:
+        payload = _get_json(base_url, f"/api/teams/demo/coding/jobs/{completed.job_id}/artifacts/stdoutLog")
+
+    assert payload["name"] == "stdoutLog"
+    assert payload["path"] == str(outside_path)
+    assert payload["content"] is None
+    assert payload["unavailableReason"] == "outside_artifact_root"

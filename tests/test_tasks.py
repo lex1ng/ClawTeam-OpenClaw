@@ -426,3 +426,93 @@ class TestCodingCallbackMetadata:
         assert explicit_faults[0].fault_type == "callback_session_link_missing"
         assert explicit_faults[0].scope_type.value == "callback"
         assert explicit_faults[0].scope_id == "job-missing-link"
+
+    def test_record_coding_callback_rejects_mismatched_reported_session_id(self, store):
+        task1 = store.create("coding task 1")
+        task2 = store.create("coding task 2")
+        service = CodingService()
+
+        service.create_job(
+            CodingExecRequest(
+                teamName=store.team_name,
+                workerName="worker-1",
+                workerId="worker-id-1",
+                leaderName="leader",
+                taskId=task1.id,
+                provider="claude",
+                prompt="Implement callback mismatch guard",
+                workerWorkspaceCwd="/tmp/worktree",
+                workerRuntimeCwd="/tmp/runtime",
+            ),
+            job_id_factory=lambda: "job-session-a",
+        )
+        service.mark_running(store.team_name, "job-session-a")
+        service.complete_job(
+            store.team_name,
+            "job-session-a",
+            CodingExecResult(
+                jobId="job-session-a",
+                provider="claude",
+                effectiveCwd="/tmp/worktree",
+                status="completed",
+                summary="done-a",
+            ),
+        )
+
+        service.create_job(
+            CodingExecRequest(
+                teamName=store.team_name,
+                workerName="worker-2",
+                workerId="worker-id-2",
+                leaderName="leader",
+                taskId=task2.id,
+                provider="claude",
+                prompt="Implement callback mismatch guard",
+                workerWorkspaceCwd="/tmp/worktree",
+                workerRuntimeCwd="/tmp/runtime",
+            ),
+            job_id_factory=lambda: "job-session-b",
+        )
+        service.mark_running(store.team_name, "job-session-b")
+        service.complete_job(
+            store.team_name,
+            "job-session-b",
+            CodingExecResult(
+                jobId="job-session-b",
+                provider="claude",
+                effectiveCwd="/tmp/worktree",
+                status="completed",
+                summary="done-b",
+            ),
+        )
+
+        report = WorkerCodingCallbackReport(
+            taskId=task1.id,
+            jobId="job-session-a",
+            sessionId="psess-job-session-b",
+            provider="claude",
+            status="completed",
+            decision=WorkerCodingDecision.report_progress,
+            summary="Implemented feature",
+        )
+
+        updated = store.record_coding_callback(task1.id, report)
+
+        assert updated is not None
+        callback = RuntimeConsoleStore().load_callback_report(store.team_name, "job-session-a")
+        assert callback is not None
+        assert callback.session_id == "psess-job-session-a"
+
+        session_a = RuntimeConsoleStore().get_provider_session(store.team_name, "psess-job-session-a")
+        session_b = RuntimeConsoleStore().get_provider_session(store.team_name, "psess-job-session-b")
+        assert session_a is not None
+        assert session_b is not None
+        assert session_a.state.value == "ended"
+        assert session_a.callback_status.value == "reported"
+        assert session_b.state.value == "callback_pending"
+
+        explicit_faults, _ = RuntimeConsoleStore().inspect_faults(store.team_name)
+        mismatch_faults = [fault for fault in explicit_faults if fault.fault_type == "callback_session_link_mismatch"]
+        assert len(mismatch_faults) == 1
+        assert mismatch_faults[0].scope_type.value == "callback"
+        assert mismatch_faults[0].scope_id == "job-session-a"

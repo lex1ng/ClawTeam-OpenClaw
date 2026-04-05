@@ -923,7 +923,13 @@ function DetailDrawer({ data, selected }) {
     let cancelled = false;
     setArtifactPreview({ status: "loading", payload: null, error: "" });
     fetch(artifactPreviewRoute(data.team.name, selected.data.jobId, artifact.name))
-      .then(response => response.json())
+      .then(async response => {
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || `Artifact preview request failed with status ${response.status}`);
+        }
+        return payload;
+      })
       .then(payload => {
         if (!cancelled) {
           setArtifactPreview({ status: "loaded", payload, error: "" });
