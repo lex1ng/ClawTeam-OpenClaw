@@ -1,273 +1,255 @@
 ---
-name: clawteam
-description: "Multi-agent swarm coordination via the ClawTeam CLI. Use when the user wants to create agent teams, spawn multiple agents to work in parallel, coordinate tasks with dependencies, broadcast messages between agents, monitor progress via kanban board, or launch pre-built team templates (hedge-fund, code-review, research-paper). ClawTeam uses git worktree isolation + tmux + filesystem-based messaging. Trigger phrases: team, swarm, multi-agent, clawteam, spawn agents, parallel agents, agent team."
+name: clawteam-openclaw
+description: "Multi-agent swarm coordination for the ClawTeam-OpenClaw fork. Use when the user wants to create or reuse a persistent team, spawn multiple workers, assign tasks with dependencies, send inbox messages, inspect coding runtime state, inspect provider sessions/callbacks/faults/timeline, monitor progress through board surfaces, or launch a team template. This fork defaults to OpenClaw for swarm spawning and supports Claude Code and Codex as coding-runtime providers. Trigger phrases: clawteam, openclaw team, team, swarm, multi-agent, spawn agents, callback, coding runtime, runtime console, provider session, board, timeline, fault."
+version: 0.3.0
 ---
 
-# ClawTeam — Multi-Agent Swarm Coordination
+# ClawTeam OpenClaw Skill
 
 ## Overview
 
-ClawTeam is a CLI tool (`clawteam`) for orchestrating multiple AI agents as self-organizing swarms. It uses git worktree isolation, tmux windows, and filesystem-based messaging. OpenClaw is the default agent backend.
+ClawTeam-OpenClaw is a fork of ClawTeam for durable multi-agent coordination.
 
-**CLI binary**: `clawteam` (installed via pip, available in PATH)
+In this fork:
 
-## Quick Start
+- OpenClaw is the default swarm/backend path for spawned team members
+- spawned workers normally run in tmux with git worktree isolation
+- Claude Code and Codex are supported as coding-runtime providers through `clawteam coding exec`
+- provider configuration remains external to ClawTeam
+- runtime state is persisted under `~/.clawteam/`
 
-### One-Command Template Launch (Recommended)
+Use this skill when the task benefits from persistent team topology, parallel workers, task dependencies, role separation, or coding callback inspection.
 
-```bash
-# Launch a pre-built team from a template
-clawteam launch hedge-fund --team fund1
-clawteam launch code-review --team review1
-clawteam launch research-paper --team paper1
-```
+## Support Model
 
-### Manual Team Setup
+Keep these support boundaries clear:
 
-```bash
-# 1. Create team with leader
-clawteam team spawn-team my-team -d "Build a web app" -n leader
+- **Default swarm backend**: OpenClaw
+- **Coding-runtime providers**: `claude`, `codex`
+- **Other CLI agents**: may still participate in team/task/inbox flows, but the durable coding callback runtime is currently implemented for `claude` and `codex`
+- **Provider config**: external; ClawTeam-OpenClaw does not manage provider accounts, models, profiles, or provider-side config files
 
-# 2. Create tasks with dependencies
-clawteam task create my-team "Design API schema" -o architect
-# Returns task ID, e.g., abc123
+## Authority Model
 
-clawteam task create my-team "Implement auth" -o backend --blocked-by abc123
-clawteam task create my-team "Build frontend" -o frontend --blocked-by abc123
-clawteam task create my-team "Write tests" -o tester
+Authoritative sources of truth are:
 
-# 3. Spawn agents (each gets its own tmux window + git worktree)
-clawteam spawn -t my-team -n architect --task "Design the API schema for a web app"
-clawteam spawn -t my-team -n backend --task "Implement OAuth2 authentication"
-clawteam spawn -t my-team -n frontend --task "Build React dashboard"
+- persisted runtime files under `~/.clawteam/`
+- `clawteam` CLI output
+- Rich board output
 
-# 4. Monitor
-clawteam board show my-team        # Kanban view
-clawteam board attach my-team      # Tmux tiled view (all agents side-by-side)
-clawteam board serve --port 8080   # Web dashboard
-```
+`clawteam board serve` is a convenience Web UI only.
 
-## Command Reference
+Do not treat Web board state, tmux panes, or raw provider exit alone as the source of truth when durable state says otherwise.
 
-### Team Management
+## Current Runtime Model
 
-| Command | Description |
-|---------|-------------|
-| `clawteam team spawn-team <name> -d "<desc>" -n <leader>` | Create team |
-| `clawteam team discover` | List all teams |
-| `clawteam team status <team>` | Show team members and info |
-| `clawteam team cleanup <team> --force` | Delete team and all data |
+Keep these objects distinct:
 
-### Task Management
+- task
+- coding job
+- provider session
+- callback report
+- runtime fault
+- timeline event
 
-| Command | Description |
-|---------|-------------|
-| `clawteam task create <team> "<subject>" -o <owner> [-d "<desc>"] [--blocked-by <id>]` | Create task |
-| `clawteam task list <team> [--owner <name>]` | List tasks (filterable) |
-| `clawteam task update <team> <id> --status <status>` | Update status |
-| `clawteam task get <team> <id>` | Get single task |
-| `clawteam task stats <team>` | Timing statistics |
-| `clawteam task wait <team>` | Block until all tasks complete |
+Do not collapse process exit, callback completion, task completion, session closure, and board visibility into one fact.
 
-**Task statuses**: `pending`, `in_progress`, `completed`, `blocked`
+## Install Expectations
 
-**Dependency auto-resolution**: When a blocking task completes, dependent tasks automatically change from `blocked` to `pending`.
+For this fork, do not tell operators to install upstream PyPI `clawteam` if they need the OpenClaw-default behavior.
 
-**Task locking**: When a task moves to `in_progress`, it is locked by the calling agent. Other agents cannot claim it unless they use `--force`. Stale locks from dead agents are automatically released.
-
-### Agent Spawning
-
-**IMPORTANT**: Always use the default command (`openclaw`) — do NOT override to `claude` or other agents. The default handles permissions, prompt injection, and nesting detection correctly. If you specify `claude` as the command, agents will get stuck on interactive permission prompts.
+Use the fork:
 
 ```bash
-# Default (RECOMMENDED): spawns openclaw tui in tmux with prompt
-clawteam spawn -t <team> -n <name> --task "<task description>"
-
-# Explicit backend (still uses openclaw by default)
-clawteam spawn tmux -t <team> -n <name> --task "<task>"
-clawteam spawn subprocess -t <team> -n <name> --task "<task>"
-
-# With git worktree isolation
-clawteam spawn -t <team> -n <name> --task "<task>" --workspace --repo /path/to/repo
+git clone https://github.com/win4r/ClawTeam-OpenClaw.git
+cd ClawTeam-OpenClaw
+pip install -e .
 ```
 
-Each spawned agent gets:
-- Its own tmux window (visible via `board attach`)
-- Its own git worktree branch (`clawteam/{team}/{agent}`)
-- An auto-injected coordination prompt (how to use clawteam CLI)
-- Environment variables: `CLAWTEAM_AGENT_NAME`, `CLAWTEAM_TEAM_NAME`, etc.
+Recommended prerequisites:
 
-**Spawn safety features:**
-- Commands are pre-validated before launch — you get a clear error if the agent CLI is not installed
-- If a spawn fails, the registered team member and worktree are automatically rolled back
-- Claude Code and Codex workspace trust prompts are auto-confirmed in fresh worktrees
+- Python 3.10+
+- `tmux`
+- `openclaw` for default swarm spawning
+- optionally `claude` and/or `codex` for coding-runtime execution
 
-### Messaging
+## Spawn Defaults
 
-| Command | Description |
-|---------|-------------|
-| `clawteam inbox send <team> <to> "<msg>" --from <sender>` | Point-to-point message |
-| `clawteam inbox broadcast <team> "<msg>" --from <sender>` | Broadcast to all |
-| `clawteam inbox peek <team> -a <agent>` | Peek without consuming |
-| `clawteam inbox receive <team>` | Consume messages |
-| `clawteam inbox log <team>` | View message history |
+In this fork, ordinary worker spawning should default to the OpenClaw path.
 
-### Monitoring
-
-| Command | Description |
-|---------|-------------|
-| `clawteam board show <team>` | Kanban board (rich terminal) |
-| `clawteam board overview` | All teams overview |
-| `clawteam board live <team>` | Live-refreshing board |
-| `clawteam board attach <team>` | Tmux tiled view |
-| `clawteam board serve --port 8080` | Web dashboard |
-
-### Cost Tracking
-
-| Command | Description |
-|---------|-------------|
-| `clawteam cost report <team> --input-tokens <N> --output-tokens <N> --cost-cents <N>` | Report usage |
-| `clawteam cost show <team>` | Show summary |
-| `clawteam cost budget <team> <dollars>` | Set budget |
-
-### Templates
-
-| Command | Description |
-|---------|-------------|
-| `clawteam template list` | List available templates |
-| `clawteam template show <name>` | Show template details |
-| `clawteam launch <template> [--team-name <name>] [--goal "<goal>"]` | Launch from template |
-
-**Built-in templates**: `hedge-fund`, `code-review`, `research-paper`
-
-### Configuration
+Use:
 
 ```bash
-clawteam config show                           # Show all settings
-clawteam config set transport file             # Set transport backend
-clawteam config set skip_permissions true      # Auto-skip permission prompts
-clawteam config health                         # System health check
+clawteam spawn --team <team> --agent-name <name> --task "<task>"
 ```
 
-### Other Commands
+Effective defaults are:
 
-| Command | Description |
-|---------|-------------|
-| `clawteam lifecycle idle <team> --agent <name>` | Report agent idle |
-| `clawteam session save <team> --session-id <id>` | Save session for resume |
-| `clawteam plan submit <team> "<plan>" --from <agent>` | Submit plan for approval (team-scoped storage) |
-| `clawteam workspace list <team>` | List git worktrees |
-| `clawteam workspace merge <team> --agent <name>` | Merge agent branch |
+- backend: `tmux`
+- command/backend path: `openclaw`
+- isolation: git worktree when available
+- cwd: worker workspace/worktree
 
-## JSON Output
+Avoid overriding ordinary worker spawning to `claude` unless there is a deliberate reason to bypass the OpenClaw swarm path.
 
-Add `--json` before any subcommand for machine-readable output:
+## Coding Runtime Defaults
+
+Use the coding runtime when a worker needs a coding provider to execute real implementation work and then return a structured callback to the same worker.
+
+Supported provider commands:
 
 ```bash
-clawteam --json task list my-team
-clawteam --json team status my-team
+clawteam coding exec claude "Implement callback handling" --team <team> --task-id <task>
+clawteam coding exec codex "Implement callback handling" --team <team> --task-id <task>
 ```
 
-## Typical Workflow
+Important behavior:
 
-1. **User says**: "Create a team to build a web app"
-2. **You do**: `clawteam team spawn-team webapp -d "Build web app" -n leader`
-3. **Create tasks**: Use `clawteam task create` with `--blocked-by` for dependencies
-4. **Spawn agents**: Use `clawteam spawn` for each worker
-5. **Monitor**: Start a background polling loop immediately — do NOT wait for user to ask
-6. **Communicate**: Use `clawteam inbox broadcast` for team-wide updates
-7. **Deliver**: Proactively send final results to the user as soon as all tasks complete
-8. **Cleanup**: `clawteam cost show`, `clawteam task stats`, merge worktrees, then `clawteam team cleanup webapp --force`
+- execution runs in the worker workspace/worktree by default
+- the worker remains the owner of the task context
+- the provider result is normalized and returned to the same worker
+- the worker decides whether to continue, report progress, escalate, complete, or block
+- success depends on structured result normalization, not process exit alone
+- raw stdout/stderr are preserved even when normalization fails
+- Claude Code startup includes `--dangerously-skip-permissions` by default in the runtime/spawn path where configured
 
-## Leader Orchestration Pattern
+## Core Commands
 
-When YOU are the leader agent, follow this pattern to autonomously manage a swarm:
+### Team Lifecycle
 
-### Phase 1: Analyze & Plan
-```
-1. Understand the user's goal
-2. Break it into independent subtasks
-3. Identify dependencies between tasks (what must finish before what)
-4. Decide how many worker agents are needed
-```
-
-### Phase 2: Setup
 ```bash
-# Create team
-clawteam team spawn-team <team> -d "<goal description>" -n leader
+clawteam team spawn-team <team> -d "<goal>" -n leader
+clawteam team discover
+clawteam team status <team>
+clawteam team cleanup <team> --force
+```
 
-# Create tasks with dependency chains
+### Task Lifecycle
+
+```bash
 clawteam task create <team> "Design API" -o architect
-# Save the returned task ID (e.g., abc123)
-clawteam task create <team> "Build backend" -o backend --blocked-by abc123
-clawteam task create <team> "Build frontend" -o frontend --blocked-by abc123
-clawteam task create <team> "Integration tests" -o tester --blocked-by <backend-id>,<frontend-id>
+clawteam task create <team> "Build backend" -o backend --blocked-by <task-id>
+clawteam task list <team>
+clawteam task get <team> <task-id>
+clawteam task update <team> <task-id> --status in_progress
+clawteam task update <team> <task-id> --status completed
+clawteam task stats <team>
+clawteam task wait <team>
 ```
 
-### Phase 3: Spawn Workers
-```bash
-# Each spawn launches an openclaw tui in its own tmux window
-clawteam spawn -t <team> -n architect --task "Design REST API schema for <goal>"
-clawteam spawn -t <team> -n backend --task "Implement backend based on API schema"
-clawteam spawn -t <team> -n frontend --task "Build React frontend"
-clawteam spawn -t <team> -n tester --task "Write and run integration tests"
-```
-
-### Phase 4: Monitor Loop
-
-**IMPORTANT**: Start monitoring immediately after spawning — do NOT wait for the user to ask for status updates. Run the monitor loop in the background right away so you can:
-1. **Push mid-progress updates proactively** — when ~50% of tasks complete, send the user a brief status update (e.g. "4/7 agents done, 3 still working"). Do NOT wait for them to ask.
-2. **Deliver final results immediately** when all tasks complete.
+### Worker Messaging
 
 ```bash
-# Poll task status every 30-60 seconds
-while true; do
-  clawteam --json task list <team> | python3 -c "
-import sys, json
-tasks = json.load(sys.stdin)
-done = sum(1 for t in tasks if t['status'] == 'completed')
-total = len(tasks)
-print(f'{done}/{total} complete')
-if done == total: print('ALL DONE'); sys.exit(0)
-"
-  # Check for messages from workers
-  clawteam inbox receive <team>
-  # IMPORTANT: Send a mid-progress update to the user when roughly half the tasks are done
-  sleep 30
-done
+clawteam inbox send <team> <agent> "<message>" --from <sender>
+clawteam inbox broadcast <team> "<message>" --from <sender>
+clawteam inbox peek <team> -a <agent>
+clawteam inbox receive <team>
+clawteam inbox log <team>
 ```
 
-### Phase 5: Converge & Report
-
-**IMPORTANT**: Proactively deliver results to the user as soon as all tasks complete. Do NOT wait for the user to ask. Include the final output, a summary, and cost/timing stats. ALWAYS merge worktrees and clean up.
+### Monitoring and Board Surfaces
 
 ```bash
-# After all tasks complete — do ALL of these steps:
-clawteam board show <team>           # Final status
-clawteam cost show <team>            # Total cost — include in report to user
-clawteam task stats <team>           # Timing stats — include in report to user
-# Merge each worker's branch back to main
-for agent in <agent1> <agent2> ...; do
-  clawteam workspace merge <team> --agent $agent
-done
-clawteam team cleanup <team> --force  # Clean up — ALWAYS do this last
-# Then: send the final deliverables to the user immediately
+clawteam board show <team>
+clawteam --json board show <team>
+clawteam board live <team>
+clawteam board attach <team>
+clawteam board serve --port 8080
 ```
 
-### Decision Rules for the Leader
-- **Independent tasks** → spawn workers in parallel
-- **Sequential tasks** → use `--blocked-by` to chain them; ClawTeam auto-unblocks
-- **Worker asks for help** → check inbox, provide guidance via `inbox send`
-- **Worker stuck** → check task status; if `in_progress` too long, send a nudge via `inbox send`
-- **Worker done** → verify result via inbox message, then move to next phase
-- **All done** → merge worktrees, deliver results to user proactively, then cleanup
-- **Always** → start background monitoring immediately after spawn; never wait for user to ask for status
+### Coding Runtime and Runtime Console
+
+```bash
+clawteam coding list --team <team>
+clawteam coding status <job-id> --team <team>
+clawteam coding result <job-id> --team <team>
+clawteam coding events <job-id> --team <team>
+clawteam coding artifacts <job-id> --team <team>
+clawteam coding artifact <job-id> --name stdoutLog --team <team>
+clawteam coding wait <job-id> --team <team>
+clawteam coding cancel <job-id> --team <team> --reason "operator requested stop"
+clawteam coding retry <job-id> --team <team>
+clawteam coding replay <job-id> --team <team>
+
+clawteam coding session list --team <team>
+clawteam coding session show <session-id> --team <team>
+clawteam coding session jobs <session-id> --team <team>
+clawteam coding session events <session-id> --team <team>
+
+clawteam faults list --team <team>
+clawteam faults show <fault-id> --team <team>
+clawteam audit timeline --team <team>
+```
+
+## Recommended Workflow
+
+1. Create or reuse a persistent team.
+2. Create tasks with explicit owners and `--blocked-by` dependencies.
+3. Spawn only the workers that are actually needed.
+4. Start monitoring immediately after spawning.
+5. When a worker needs real implementation work, use `clawteam coding exec claude ...` or `codex ...` in the correct worker/task context.
+6. Inspect durable state through CLI or Rich board before making decisions.
+7. Summarize task-facing progress upward instead of forwarding raw provider transcripts.
+8. Merge worktrees and clean up only after the authoritative state says the work is done.
+
+## Leader Rules
+
+When acting as leader:
+
+- parallelize only independent tasks
+- use `--blocked-by` for sequencing
+- keep monitoring without waiting for the user to ask
+- inspect inbox, tasks, coding jobs, faults, and timeline before assuming a worker is stuck or done
+- verify completion through durable task state and callback-aware runtime state
+- escalate only when a worker cannot proceed or a decision truly belongs above the worker
+
+## Worker Rules
+
+When acting as worker:
+
+- operate inside the assigned workspace/worktree
+- keep task state updated honestly
+- use inbox messages for concise team-facing communication
+- use coding runtime deliberately; do not fire multiple overlapping coding jobs for the same task
+- after callback return, decide whether to continue locally or escalate to leader
+- do not equate provider exit with success if normalization or durable records say otherwise
+
+## Current V1 Limits
+
+The current shipped runtime has these limits:
+
+- `1 worker = 1 active coding job`
+- `1 task = 1 active provider execution`
+- live cancel is durable-state only
+- detached async callback delivery is not implemented
+- stronger live control semantics are not implemented
+- reconciliation/recovery beyond current durable truth is not implemented
+- provider session metadata may be `ephemeral` or `unavailable`
+- `board serve` remains a convenience UI and still depends on external CDN assets
 
 ## Data Location
 
-All state stored in `~/.clawteam/`:
-- Teams: `~/.clawteam/teams/<team>/config.json`
-- Tasks: `~/.clawteam/tasks/<team>/task-<id>.json` (with `fcntl` file locking for concurrent safety)
-- Plans: `~/.clawteam/plans/<team>/<agent>-<plan_id>.md` (team-scoped, isolated per team)
-- Messages: `~/.clawteam/teams/<team>/inboxes/<agent>/msg-*.json`
-- Costs: `~/.clawteam/costs/<team>/`
+Durable state lives under `~/.clawteam/`.
+
+Important paths:
+
+- `~/.clawteam/teams/<team>/`
+- `~/.clawteam/tasks/<team>/`
+- `~/.clawteam/coding/jobs/<team>/`
+- `~/.clawteam/coding/results/<team>/`
+- `~/.clawteam/coding/events/<team>/`
+- `~/.clawteam/coding/artifacts/<team>/`
+- `~/.clawteam/runtime-console/provider-sessions/<team>/`
+- `~/.clawteam/runtime-console/callbacks/<team>/`
+- `~/.clawteam/runtime-console/faults/<team>/`
+- `~/.clawteam/runtime-console/timeline/<team>/`
+
+## Operator Guidance
+
+Prefer these references when you need exact operator semantics:
+
+- `README.md`
+- `docs/runtime-console-operator-guide.md`
+- `docs/upgrade-and-rollback-guide.md`
+
+If those sources disagree with the Web board, trust the durable model and CLI.

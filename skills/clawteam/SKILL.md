@@ -1,206 +1,213 @@
 ---
 name: ClawTeam Multi-Agent Coordination
 description: >
-  This skill should be used when the user asks to "create a team", "spawn agents",
-  "assign tasks", "coordinate multiple agents", "check team status", "view kanban board",
-  "send messages between agents", "manage team tasks", "monitor team progress",
-  or mentions "clawteam", "multi-agent coordination", "team collaboration",
-  "agent inbox", "task board", "spawn worker". This skill should also be triggered
-  when the current task is complex enough to benefit from splitting into subtasks
-  and delegating to multiple agents — for example when the user asks to "build a
-  full-stack app", "refactor the entire codebase", "implement multiple features
-  in parallel", or when the agent determines that the work scope exceeds what a
-  single agent can efficiently handle alone. Provides comprehensive guidance for
-  using the ClawTeam CLI to orchestrate multi-agent teams with task management,
-  messaging, and monitoring.
-version: 0.2.0
+  Use this skill when the user wants to create or reuse a persistent team,
+  spawn workers, assign tasks with dependencies, coordinate multi-agent work,
+  inspect team state, inspect coding runtime jobs/sessions/faults/timeline,
+  monitor progress through board surfaces, or operate the ClawTeam-OpenClaw fork.
+  This fork defaults to OpenClaw for worker spawning and supports Claude Code and
+  Codex as coding-runtime providers. Trigger phrases include clawteam, team,
+  swarm, openclaw team, spawn worker, callback, coding runtime, runtime console,
+  board, provider session, fault, and timeline.
+version: 0.3.0
 ---
 
 # ClawTeam Multi-Agent Coordination
 
-ClawTeam is a framework-agnostic CLI tool for coordinating multiple AI agents as a team.
-It provides file-based team management, inter-agent messaging, shared task tracking with
-dependency resolution, plan approval workflows, and terminal-based monitoring dashboards.
+## Overview
 
-All operations are performed via the `clawteam` CLI. Data is stored in `~/.clawteam/` by default.
+ClawTeam-OpenClaw is a durable multi-agent coordination CLI.
 
-## Installation
+In this fork:
+
+- OpenClaw is the default worker/swarm backend
+- workers normally run in tmux with git worktree isolation
+- Claude Code and Codex are supported through `clawteam coding exec`
+- provider configuration remains external
+- runtime truth is persisted under `~/.clawteam/`
+
+Use this skill when a task benefits from role separation, persistent team reuse, explicit dependencies, or callback-aware coding execution.
+
+## Fork-Specific Truths
+
+Do not use stale upstream assumptions.
+
+For this fork:
+
+- do not describe ordinary spawn default as `claude`; the default path is OpenClaw
+- do not describe PyPI upstream `clawteam` as the required install for this behavior; operators should install this fork
+- do not claim the Web board is authoritative
+- do not claim provider process exit alone proves task success
+
+## Install Expectations
 
 ```bash
-pip install clawteam
+git clone https://github.com/win4r/ClawTeam-OpenClaw.git
+cd ClawTeam-OpenClaw
+pip install -e .
 ```
 
-Requires Python 3.10+. For P2P transport support: `pip install clawteam[p2p]`.
+Prerequisites:
 
-## Prerequisites
+- Python 3.10+
+- `tmux`
+- `openclaw` for default spawning
+- optionally `claude` and/or `codex` for coding runtime
 
-- `tmux` installed (used by default spawn backend)
-- A CLI coding agent (e.g. `claude`, `codex`, or any command-line agent)
-- A git repository (for worktree isolation)
+## Authority Model
 
-## Core Concepts
+Authoritative sources are:
 
-**Teams** — A named group of agents with one leader and zero or more workers. Created via
-`clawteam team spawn-team`. The leader approves joins, reviews plans, and coordinates shutdown.
+- persisted files under `~/.clawteam/`
+- `clawteam` CLI output
+- Rich board output
 
-**Inbox** — File-based message queue per agent. `inbox send` for point-to-point, `inbox broadcast`
-for all members. `inbox receive` consumes messages (destructive); `inbox peek` reads without consuming.
+`clawteam board serve` is a convenience Web UI over the same durable model.
 
-**Tasks** — Shared task board with statuses: `pending`, `in_progress`, `completed`, `blocked`.
-Tasks support dependency chains (`--blocks`, `--blocked-by`). Completing a task auto-unblocks dependents.
+## Core Object Model
 
-**Board** — Terminal kanban dashboard. `board show` for single team, `board overview` for all teams,
-`board live` for real-time auto-refresh, `board attach` for tiled tmux view of all agents.
+Keep these objects separate:
 
-**Identity** — Each agent has env vars (`CLAWTEAM_AGENT_ID`, `CLAWTEAM_AGENT_NAME`, `CLAWTEAM_AGENT_TYPE`,
-`CLAWTEAM_TEAM_NAME`). Set automatically when spawned via `clawteam spawn`.
+- task
+- coding job
+- provider session
+- callback report
+- runtime fault
+- timeline event
+
+This distinction matters for correct operator reasoning.
 
 ## Quick Start
 
-### Set Up a Team with Tasks
+### Create a Team
 
 ```bash
-# Set identity for the current session
-export CLAWTEAM_AGENT_ID="leader-001"
-export CLAWTEAM_AGENT_NAME="leader"
-export CLAWTEAM_AGENT_TYPE="leader"
+clawteam team spawn-team my-team -d "Build the feature" -n leader
+clawteam task create my-team "Design API" -o architect
+clawteam task create my-team "Implement backend" -o backend --blocked-by <api-task-id>
+clawteam task create my-team "Build frontend" -o frontend --blocked-by <api-task-id>
+```
 
-# Create team
-clawteam team spawn-team my-team -d "Project team" -n leader
+### Spawn Workers
 
-# Create tasks
-clawteam task create my-team "Design system" -o leader
-clawteam task create my-team "Implement feature" -o worker1
-clawteam task create my-team "Write tests" -o worker2
+```bash
+# Recommended default path: OpenClaw + tmux + worktree isolation
+clawteam spawn --team my-team --agent-name architect --task "Design the API"
+clawteam spawn --team my-team --agent-name backend --task "Implement backend"
+clawteam spawn --team my-team --agent-name frontend --task "Build frontend"
+```
 
-# View board
+### Observe the Team
+
+```bash
 clawteam board show my-team
-```
-
-### Spawn and Coordinate Agents
-
-```bash
-# Spawn workers — defaults: tmux backend, claude command, git worktree isolation, skip-permissions on
-clawteam spawn --team my-team --agent-name worker1 --task "Implement the auth module"
-clawteam spawn --team my-team --agent-name worker2 --task "Write unit tests"
-
-# Or explicitly specify backend and command (positional args: [BACKEND] [COMMAND])
-clawteam spawn tmux claude --team my-team --agent-name worker3 --task "Build API endpoints"
-clawteam spawn subprocess claude --team my-team --agent-name worker4 --task "Run linting"
-
-# Watch all agents working simultaneously (tiled tmux panes)
-clawteam board attach my-team
-
-# Send instructions
-clawteam inbox send my-team worker1 "Start implementing the auth module"
-
-# Monitor task board
-clawteam board live my-team --interval 3
-```
-
-### Spawn Defaults
-
-Spawning agents uses sensible defaults — no flags needed for the common case:
-
-| Setting | Default | Override |
-|---------|---------|----------|
-| Backend | `tmux` | `clawteam spawn subprocess ...` |
-| Command | `claude` | `clawteam spawn tmux my-cmd ...` |
-| Workspace | `auto` (git worktree) | `--no-workspace` or config `workspace=never` |
-| Permissions | skip (no approval needed) | `--no-skip-permissions` or config `skip_permissions=false` |
-
-Agents spawned with defaults get:
-- Their own **git worktree** (isolated branch, no conflicts with other agents)
-- **Full tool permissions** (`--dangerously-skip-permissions`) so they can work autonomously
-- A **tmux window** you can watch with `board attach`
-
-### Task Lifecycle
-
-```bash
-# Create with dependencies
-clawteam task create my-team "Deploy" --blocked-by <impl-task-id>,<test-task-id>
-
-# Update status
-clawteam task update my-team <task-id> --status in_progress
-clawteam task update my-team <task-id> --status completed  # auto-unblocks dependents
-
-# Filter tasks
-clawteam task list my-team --status blocked
-clawteam task list my-team --owner worker1
-```
-
-### Waiting for Sub-Agents
-
-```bash
-# Block until all tasks complete (no timeout)
-clawteam task wait my-team
-
-# With timeout and custom poll interval
-clawteam task wait my-team --timeout 300 --poll-interval 10
-
-# Monitor a specific agent's inbox instead of the leader
-clawteam task wait my-team --agent coordinator
-
-# JSON streaming output (NDJSON: progress + message events, then final result)
-clawteam --json task wait my-team --timeout 600
-```
-
-### Watching Agents Work
-
-```bash
-# Tile all agent tmux windows into one view (best way to observe)
-clawteam board attach my-team
-
-# Or attach to the tmux session manually and switch windows with Ctrl-b + number
-tmux attach -t clawteam-my-team
-```
-
-## Command Groups
-
-| Group | Purpose | Key Commands |
-|-------|---------|-------------|
-| `team` | Team lifecycle | `spawn-team`, `discover`, `status`, `request-join`, `approve-join`, `cleanup` |
-| `inbox` | Messaging | `send`, `broadcast`, `receive`, `peek`, `watch` |
-| `task` | Task management | `create`, `get`, `update`, `list`, `wait` |
-| `board` | Monitoring | `show`, `overview`, `live`, `attach`, `serve` |
-| `plan` | Plan approval | `submit`, `approve`, `reject` |
-| `lifecycle` | Agent lifecycle | `request-shutdown`, `approve-shutdown`, `idle` |
-| `spawn` | Process spawning | `spawn [backend] [command]` (defaults: tmux, claude) |
-| `identity` | Identity management | `show`, `set` |
-
-## JSON Output
-
-All commands support `--json` for machine-readable output. Place the flag before the subcommand:
-
-```bash
-clawteam --json team discover
 clawteam --json board show my-team
-clawteam --json task list my-team --status pending
+clawteam board attach my-team
+clawteam board serve --port 8080
 ```
 
-Combine with `jq` for scripting:
+## Spawn Semantics
+
+Default expectations in this fork:
+
+- backend: `tmux`
+- worker path: `openclaw`
+- workspace: git worktree when available
+- execution cwd: worker workspace/worktree
+
+When Claude-based spawn/runtime paths are used, `--dangerously-skip-permissions` is enabled by default where configured so worker automation does not stall on approval prompts.
+
+Avoid overriding normal team-worker spawn to `claude` unless you explicitly want to bypass the OpenClaw path.
+
+## Coding Runtime
+
+Use `clawteam coding exec` when a worker needs a coding provider to execute implementation work and then deliver a structured callback back to that same worker.
+
+Supported provider adapters:
 
 ```bash
-clawteam --json board show my-team | jq '.taskSummary'
-clawteam --json task list my-team | jq '.[].subject'
+clawteam coding exec claude "Implement retry handling" --team my-team --task-id task-123
+clawteam coding exec codex "Implement retry handling" --team my-team --task-id task-123
 ```
 
-## Important Notes
+Runtime expectations:
 
-- `inbox receive` **consumes** messages (deletes files). Use `inbox peek` for non-destructive reads.
-- Task status `blocked` is **auto-set** when `--blocked-by` is specified at creation.
-- Completing a task **auto-unblocks** any tasks that list it in `blockedBy`.
-- `clawteam spawn` defaults to **tmux** backend with **git worktree** isolation and **skip-permissions**.
-- All file writes use atomic tmp+rename to prevent data corruption.
-- Identity env vars are set automatically when spawning via `clawteam spawn`.
-- Use `board attach <team>` to watch all agents in a tiled tmux layout.
+- execution stays inside the worker workspace/worktree by default
+- the worker owns the execution context
+- the provider result returns to the same worker as structured callback data
+- the worker decides whether to continue, report progress, escalate, complete, or block
+- durable artifacts, events, sessions, callbacks, and faults remain inspectable after execution
 
-## Additional Resources
+Inspect with:
 
-### Reference Files
+```bash
+clawteam coding list --team my-team
+clawteam coding status <job-id> --team my-team
+clawteam coding result <job-id> --team my-team
+clawteam coding events <job-id> --team my-team
+clawteam coding artifacts <job-id> --team my-team
+clawteam coding artifact <job-id> --name stdoutLog --team my-team
+clawteam coding session list --team my-team
+clawteam faults list --team my-team
+clawteam audit timeline --team my-team
+```
 
-For detailed command arguments, data models, and storage layout:
-- **`references/cli-reference.md`** — Complete CLI reference with all commands, options, and data models
+## Messaging and Control
 
-For step-by-step coordination workflows and common patterns:
-- **`references/workflows.md`** — Multi-agent workflows: team setup, spawn coordination, join protocol, plan approval, graceful shutdown, monitoring patterns
+Use inbox commands for team communication:
+
+```bash
+clawteam inbox send my-team worker1 "Start the auth implementation" --from leader
+clawteam inbox broadcast my-team "Sync status in 10 minutes" --from leader
+clawteam inbox peek my-team -a worker1
+clawteam inbox receive my-team
+```
+
+Use task dependencies for sequencing rather than ad hoc memory.
+
+## Recommended Operating Pattern
+
+1. Create or reuse the team.
+2. Define tasks with explicit owners and dependency edges.
+3. Spawn only the required workers.
+4. Monitor immediately.
+5. Use coding runtime only inside the correct worker/task context.
+6. Diagnose with CLI and durable state first.
+7. Report summarized outcomes upward.
+8. Merge worktrees and clean up only after durable truth confirms completion.
+
+## Current V1 Limits
+
+- `1 worker = 1 active coding job`
+- `1 task = 1 active provider execution`
+- live cancel remains durable-state only
+- detached async callback delivery is not implemented
+- stronger live control semantics are not implemented
+- reconciliation/recovery is not implemented
+- provider session metadata may be `ephemeral` or `unavailable`
+- Web board remains convenience UI and still depends on external CDN assets
+
+## Data Location
+
+State lives under `~/.clawteam/`.
+
+Key paths:
+
+- `~/.clawteam/teams/<team>/`
+- `~/.clawteam/tasks/<team>/`
+- `~/.clawteam/coding/jobs/<team>/`
+- `~/.clawteam/coding/results/<team>/`
+- `~/.clawteam/coding/events/<team>/`
+- `~/.clawteam/coding/artifacts/<team>/`
+- `~/.clawteam/runtime-console/provider-sessions/<team>/`
+- `~/.clawteam/runtime-console/callbacks/<team>/`
+- `~/.clawteam/runtime-console/faults/<team>/`
+- `~/.clawteam/runtime-console/timeline/<team>/`
+
+## References
+
+Use these repo documents for authoritative operator semantics:
+
+- `README.md`
+- `docs/runtime-console-operator-guide.md`
+- `docs/upgrade-and-rollback-guide.md`
