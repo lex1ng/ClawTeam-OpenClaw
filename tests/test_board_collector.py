@@ -14,6 +14,45 @@ from clawteam.team.models import WorkerCodingCallbackReport, WorkerCodingDecisio
 from clawteam.team.tasks import TaskStore
 
 
+def _seed_mixed_fault_board_state(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAWTEAM_DATA_DIR", str(tmp_path))
+    TeamManager.create_team(name="demo", leader_name="leader", leader_id="leader-001")
+
+    task_store = TaskStore("demo")
+    task = task_store.create("healthy task", owner="worker1")
+    broken_task_path = tmp_path / "tasks" / "demo" / "task-bad.json"
+    broken_task_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_task_path.write_text("{bad-json", encoding="utf-8")
+
+    service = CodingService()
+    record = service.create_job(
+        CodingExecRequest(
+            teamName="demo",
+            workerName="worker1",
+            workerId="worker-001",
+            taskId=task.id,
+            provider="claude",
+            prompt="Implement durable callbacks",
+            workerWorkspaceCwd="/tmp/worktree",
+            workerRuntimeCwd="/tmp/runtime",
+        ),
+        job_id_factory=lambda: "job-mixed-fault",
+    )
+    service.store.job_path("demo", "job-bad").write_text("{bad-json", encoding="utf-8")
+    RuntimeConsoleStore().save_fault(
+        RuntimeFaultRecord(
+            faultId="fault-runtime-mixed",
+            faultType="session_ephemeral",
+            severity="warning",
+            scopeType="provider_session",
+            scopeId=record.provider_session_ref,
+            teamName="demo",
+            message="Session metadata unavailable",
+        )
+    )
+    return task
+
+
 def test_board_collector_surfaces_coding_runtime_and_task_metadata(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAWTEAM_DATA_DIR", str(tmp_path))
     TeamManager.create_team(name="demo", leader_name="leader", leader_id="leader-001")
@@ -250,3 +289,43 @@ def test_board_collector_surfaces_task_read_faults(monkeypatch, tmp_path):
     assert len(data["taskReadFaults"]) == 1
     assert data["taskReadFaults"][0]["faultType"] == "corrupt_record"
     assert data["taskReadFaults"][0]["recordKind"] == "task"
+
+
+def test_board_show_json_preserves_mixed_fault_surfaces(monkeypatch, tmp_path):
+    task = _seed_mixed_fault_board_state(monkeypatch, tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        ["--json", "board", "show", "demo"],
+        env={"CLAWTEAM_DATA_DIR": str(tmp_path)},
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["taskSummary"]["total"] == 1
+    assert payload["runtimeConsole"]["tasks"][0]["id"] == task.id
+    assert len(payload["taskReadFaults"]) == 1
+    assert payload["taskReadFaults"][0]["recordKind"] == "task"
+    assert len(payload["coding"]["faults"]) == 1
+    assert payload["coding"]["faults"][0]["recordKind"] == "job"
+    assert len(payload["runtimeConsole"]["faults"]) == 1
+    assert payload["runtimeConsole"]["faults"][0]["faultId"] == "fault-runtime-mixed"
+
+
+def test_board_show_human_surfaces_task_coding_and_runtime_fault_groups(monkeypatch, tmp_path):
+    _seed_mixed_fault_board_state(monkeypatch, tmp_path)
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        ["board", "show", "demo"],
+        env={"CLAWTEAM_DATA_DIR": str(tmp_path)},
+    )
+
+    assert result.exit_code == 0
+    assert "Fault Surfaces" in result.stdout
+    assert "Task Read Faults" in result.stdout
+    assert "Coding Read Faults" in result.stdout
+    assert "Runtime Faults" in result.stdout
+    assert "Healthy records continue to render" in result.stdout

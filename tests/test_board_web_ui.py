@@ -7,6 +7,10 @@ def test_runtime_console_web_board_static_shell_includes_operator_sections():
     html = Path("clawteam/board/static/index.html").read_text(encoding="utf-8")
 
     assert "Runtime Console" in html
+    assert "Fault Surfaces" in html
+    assert "Task Read Faults" in html
+    assert "Coding Read Faults" in html
+    assert "Healthy records continue to render; unreadable or corrupted records remain explicit." in html
     assert "Provider Sessions" in html
     assert "Coding Runtime" in html
     assert "Event Timeline" in html

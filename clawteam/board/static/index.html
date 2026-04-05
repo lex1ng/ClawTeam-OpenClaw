@@ -186,6 +186,45 @@
     margin-bottom: 18px;
   }
 
+  .fault-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+
+  .fault-card {
+    padding: 16px 18px;
+    border-radius: var(--radius);
+    border: 1px solid rgba(251, 146, 60, 0.26);
+    background: linear-gradient(180deg, rgba(49, 25, 16, 0.78), rgba(21, 14, 12, 0.92));
+    box-shadow: var(--shadow);
+  }
+
+  .fault-card .meta-copy {
+    margin-top: 10px;
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .fault-heading {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 0 12px;
+    color: var(--muted);
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  .fault-list {
+    display: grid;
+    gap: 10px;
+    margin-top: 14px;
+  }
+
   .health-card {
     padding: 14px 16px;
     border-radius: var(--radius);
@@ -485,7 +524,8 @@
   @media (max-width: 1120px) {
     .hero,
     .panel-grid,
-    .health-grid {
+    .health-grid,
+    .fault-grid {
       grid-template-columns: 1fr;
     }
 
@@ -564,14 +604,51 @@ function buildHealthCards(data) {
   const sessionSummary = runtime.summary?.sessions || {};
   const callbackSummary = runtime.summary?.callbacks || {};
   const faultSummary = runtime.summary?.faults || {};
+  const degradedReads = (data.taskReadFaults?.length || 0) + (data.coding?.faults?.length || 0);
   return [
     { label: "Workers", value: `${countAlive(data.members || [])}/${(data.members || []).length}`, meta: "alive / total", color: "var(--accent-2)" },
     { label: "Tasks", value: data.taskSummary?.total || 0, meta: `pending ${data.taskSummary?.pending || 0} / in progress ${data.taskSummary?.in_progress || 0}`, color: "var(--accent)" },
     { label: "Active Jobs", value: jobSummary.active || 0, meta: `queued ${jobSummary.queued || 0} / running ${jobSummary.running || 0}`, color: "var(--blue)" },
     { label: "Sessions", value: sessionSummary.total || 0, meta: `ephemeral ${sessionSummary.ephemeral || 0} / attached ${sessionSummary.attached || 0}`, color: "var(--accent)" },
     { label: "Callbacks", value: callbackSummary.total || 0, meta: `reported ${callbackSummary.reported || 0} / escalated ${callbackSummary.escalated || 0}`, color: "var(--green)" },
-    { label: "Faults", value: faultSummary.total || 0, meta: "explicit runtime-visible faults", color: faultSummary.total ? "var(--red)" : "var(--green)" },
+    { label: "Faults", value: faultSummary.total || 0, meta: `runtime ${faultSummary.total || 0} / degraded reads ${degradedReads}`, color: (faultSummary.total || degradedReads) ? "var(--red)" : "var(--green)" },
   ];
+}
+
+function faultIdentity(fault) {
+  return fault.faultId || fault.recordId || fault.faultType || "fault";
+}
+
+function faultScopeLabel(fault) {
+  if (fault.scopeType) return `${fault.scopeType}:${fault.scopeId || "-"}`;
+  if (fault.recordKind && fault.recordId) return `${fault.recordKind}:${fault.recordId}`;
+  return fault.recordKind || "durable_state";
+}
+
+function buildFaultSurfaces(data) {
+  return [
+    {
+      key: "task-read-faults",
+      title: "Task Read Faults",
+      tone: "warning",
+      subtitle: "Task operations degrade with explicit faults. Healthy tasks continue to render while unreadable task files remain visible.",
+      faults: data.taskReadFaults || [],
+    },
+    {
+      key: "coding-read-faults",
+      title: "Coding Read Faults",
+      tone: "warning",
+      subtitle: "Coding runtime inspection is degraded only for unreadable durable records; healthy jobs still render normally.",
+      faults: data.coding?.faults || [],
+    },
+    {
+      key: "runtime-faults",
+      title: "Runtime Faults",
+      tone: "critical",
+      subtitle: "Runtime console faults are explicit operational records, not inferred success or hidden degradation.",
+      faults: data.runtimeConsole?.faults || [],
+    },
+  ].filter(surface => surface.faults.length);
 }
 
 function Panel({ title, subtitle, badge, children }) {
@@ -586,6 +663,42 @@ function Panel({ title, subtitle, badge, children }) {
       </div>
       {children}
     </section>
+  );
+}
+
+function FaultSurfacesPanel({ data }) {
+  const surfaces = buildFaultSurfaces(data);
+  if (!surfaces.length) return null;
+  return (
+    <>
+      <div className="fault-heading">
+        <span>Fault Surfaces</span>
+        <span>Healthy records continue to render; unreadable or corrupted records remain explicit.</span>
+      </div>
+      <section className="fault-grid">
+        {surfaces.map(surface => (
+          <div className="fault-card" key={surface.key}>
+            <div className="row-top">
+              <strong>{surface.title}</strong>
+              <Tone kind={surface.tone}>{surface.faults.length} fault{surface.faults.length === 1 ? "" : "s"}</Tone>
+            </div>
+            <div className="meta-copy">{surface.subtitle}</div>
+            <div className="fault-list">
+              {surface.faults.slice(0, 3).map((fault, index) => (
+                <div key={`${surface.key}-${faultIdentity(fault)}-${index}`} className="summary">
+                  <strong>{faultIdentity(fault)}</strong><br />
+                  {faultScopeLabel(fault)}<br />
+                  {fault.message}
+                </div>
+              ))}
+              {surface.faults.length > 3 ? (
+                <div className="summary muted">+ {surface.faults.length - 3} more persisted fault records</div>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </section>
+    </>
   );
 }
 
@@ -622,6 +735,7 @@ function WorkersPanel({ data, selected, onSelect, query }) {
 
 function TasksPanel({ data, selected, onSelect, query }) {
   const tasks = (data.runtimeConsole?.tasks || []).filter(task => matchesSearch(task, query));
+  const taskReadFaults = data.taskReadFaults || [];
   const groups = {
     pending: tasks.filter(task => task.status === "pending"),
     in_progress: tasks.filter(task => task.status === "in_progress"),
@@ -638,6 +752,14 @@ function TasksPanel({ data, selected, onSelect, query }) {
           <Tone kind="blocked">blocked {data.taskSummary?.blocked || 0}</Tone>
         </div>
       </div>
+      {taskReadFaults.length ? (
+        <div className="subsection">
+          <div className="subsection-head"><span>Task Read Faults</span><span>{taskReadFaults.length}</span></div>
+          <div className="summary">
+            Task operations degrade with explicit faults. Healthy tasks remain operable; unreadable task files are not treated as missing.
+          </div>
+        </div>
+      ) : null}
       <div className="list">
         {tasks.length === 0 ? <div className="empty">No tasks available.</div> : tasks.map(task => {
           const coding = task.metadata?.coding || {};
@@ -1172,7 +1294,7 @@ function Dashboard({ data, selected, onSelect, query, lastRefresh }) {
             Unknown session identity is explicit: <strong>providerSessionId = unavailable</strong>, <strong>sessionMode = ephemeral</strong>, <strong>resumeSupported = no</strong>.
           </div>
           <div className="truth-line">
-            Current payload includes {data.runtimeConsole?.timeline?.length || 0} timeline events and {data.runtimeConsole?.faults?.length || 0} runtime faults.
+            Current payload includes {data.runtimeConsole?.timeline?.length || 0} timeline events, {data.runtimeConsole?.faults?.length || 0} runtime faults, {data.coding?.faults?.length || 0} coding read faults, and {data.taskReadFaults?.length || 0} task read faults.
           </div>
           <div className="truth-line">
             Last refresh: {lastRefresh || "--"} | Search filter: {query ? `"${query}"` : "none"}
@@ -1189,6 +1311,8 @@ function Dashboard({ data, selected, onSelect, query, lastRefresh }) {
           </div>
         ))}
       </section>
+
+      <FaultSurfacesPanel data={data} />
 
       <section className="dashboard">
         <div className="main-column">

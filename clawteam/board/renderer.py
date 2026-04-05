@@ -138,7 +138,10 @@ class BoardRenderer:
         # 3. Coding jobs summary
         parts.append(self._build_coding_panel(coding))
 
-        # 4. Task board (4-column kanban)
+        # 4. Explicit fault surfaces
+        parts.append(self._build_fault_surfaces_panel(data))
+
+        # 5. Task board (4-column kanban)
         parts.append(self._build_task_kanban(tasks, summary))
 
         return Group(*parts)
@@ -191,6 +194,43 @@ class BoardRenderer:
             "cancelled": "dim",
         }
         return mapping.get(state, "white")
+
+    def _build_fault_surfaces_panel(self, data: dict) -> Panel:
+        task_faults = data.get("taskReadFaults", [])
+        coding_faults = data.get("coding", {}).get("faults", [])
+        runtime_faults = data.get("runtimeConsole", {}).get("faults", [])
+        surfaces = [
+            ("Task Read Faults", task_faults, "yellow"),
+            ("Coding Read Faults", coding_faults, "yellow"),
+            ("Runtime Faults", runtime_faults, "red"),
+        ]
+
+        lines = []
+        for title, faults, color in surfaces:
+            if not faults:
+                lines.append(f"[green]{title}: 0[/green]")
+                continue
+            lines.append(f"[{color}]{title}: {len(faults)}[/{color}]")
+            for fault in faults[:3]:
+                lines.append(
+                    "  - "
+                    f"{fault.get('faultId') or fault.get('recordId') or fault.get('faultType', 'fault')}  "
+                    f"{self._fault_scope_label(fault)}  "
+                    f"{fault.get('message', '')}"
+                )
+            if len(faults) > 3:
+                lines.append(f"  [dim]+ {len(faults) - 3} more[/dim]")
+
+        lines.append("")
+        lines.append("[dim]Healthy records continue to render; unreadable or corrupted records remain explicit.[/dim]")
+        return Panel("\n".join(lines), title="Fault Surfaces", border_style="yellow")
+
+    def _fault_scope_label(self, fault: dict) -> str:
+        if fault.get("scopeType"):
+            return f"{fault.get('scopeType')}:{fault.get('scopeId', '-')}"
+        record_kind = fault.get("recordKind", "durable_state")
+        record_id = fault.get("recordId")
+        return f"{record_kind}:{record_id}" if record_id else record_kind
 
     def _build_task_kanban(self, tasks: dict, summary: dict) -> Panel:
         """Build the 4-column kanban task board."""
