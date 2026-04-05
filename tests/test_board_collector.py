@@ -231,3 +231,22 @@ def test_board_show_json_surfaces_coding_store_faults(monkeypatch, tmp_path):
     assert payload["coding"]["summary"]["total"] == 1
     assert len(payload["coding"]["faults"]) == 1
     assert payload["coding"]["faults"][0]["faultType"] == "corrupt_record"
+
+
+def test_board_collector_surfaces_task_read_faults(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAWTEAM_DATA_DIR", str(tmp_path))
+    TeamManager.create_team(name="demo", leader_name="leader", leader_id="leader-001")
+
+    task_store = TaskStore("demo")
+    task = task_store.create("healthy task", owner="worker1")
+    broken_path = tmp_path / "tasks" / "demo" / "task-bad.json"
+    broken_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_path.write_text("{bad-json", encoding="utf-8")
+
+    data = BoardCollector().collect_team("demo")
+
+    assert data["taskSummary"]["total"] == 1
+    assert data["tasks"]["pending"][0]["id"] == task.id
+    assert len(data["taskReadFaults"]) == 1
+    assert data["taskReadFaults"][0]["faultType"] == "corrupt_record"
+    assert data["taskReadFaults"][0]["recordKind"] == "task"

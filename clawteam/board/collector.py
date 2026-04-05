@@ -36,6 +36,9 @@ class BoardCollector:
     def _runtime_timeline_with_faults(self, team_name: str) -> tuple[list, list[dict]]:
         return RuntimeConsoleStore().inspect_timeline(team_name)
 
+    def _tasks_with_faults(self, team_name: str) -> tuple[list, list[dict]]:
+        return TaskStore(team_name).inspect_tasks()
+
     def collect_coding_jobs(self, team_name: str) -> dict:
         jobs, faults = self._jobs_with_faults(team_name)
         jobs_payload = sorted(
@@ -412,7 +415,7 @@ class BoardCollector:
             members.append(entry)
 
         # Tasks grouped by status
-        all_tasks = store.list_tasks()
+        all_tasks, task_read_faults = self._tasks_with_faults(team_name)
         task_items = []
         grouped: dict[str, list[dict]] = {
             "pending": [],
@@ -429,6 +432,7 @@ class BoardCollector:
             s: len(grouped[s]) for s in grouped
         }
         summary["total"] = len(all_tasks)
+        summary["readFaults"] = len(task_read_faults)
 
         # Find leader name
         leader_name = ""
@@ -483,6 +487,7 @@ class BoardCollector:
             "members": members,
             "tasks": grouped,
             "taskSummary": summary,
+            "taskReadFaults": task_read_faults,
             "messages": all_messages,
             "cost": cost_data,
             "coding": coding_data,

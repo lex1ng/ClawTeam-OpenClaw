@@ -180,3 +180,23 @@ def test_board_server_artifact_preview_rejects_paths_outside_job_artifact_root(m
     assert payload["path"] == str(outside_path)
     assert payload["content"] is None
     assert payload["unavailableReason"] == "outside_artifact_root"
+
+
+def test_board_server_tasks_api_surfaces_task_read_faults(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAWTEAM_DATA_DIR", str(tmp_path))
+    TeamManager.create_team(name="demo", leader_name="leader", leader_id="leader-001")
+
+    task_store = TaskStore("demo")
+    task = task_store.create("healthy task", owner="worker1")
+    broken_path = tmp_path / "tasks" / "demo" / "task-bad.json"
+    broken_path.parent.mkdir(parents=True, exist_ok=True)
+    broken_path.write_text("{bad-json", encoding="utf-8")
+
+    with _running_board_server() as base_url:
+        payload = _get_json(base_url, "/api/teams/demo/tasks")
+
+    assert payload["summary"]["total"] == 1
+    assert payload["tasks"][0]["id"] == task.id
+    assert len(payload["faults"]) == 1
+    assert payload["faults"][0]["faultType"] == "corrupt_record"
+    assert payload["faults"][0]["recordKind"] == "task"

@@ -23,6 +23,52 @@ class TaskLockError(Exception):
     """Raised when a task is locked by another agent."""
 
 
+class TaskStoreReadError(ValueError):
+    """Base class for explicit task-store read faults."""
+
+    fault_type = "task_store_read_error"
+
+    def __init__(
+        self,
+        *,
+        record_kind: str,
+        path: Path,
+        detail: str,
+        team_name: str,
+        task_id: str | None = None,
+    ):
+        self.record_kind = record_kind
+        self.path = str(path)
+        self.detail = detail
+        self.team_name = team_name
+        self.task_id = task_id
+        super().__init__(self._build_message())
+
+    def _build_message(self) -> str:
+        target = f"{self.record_kind} record"
+        if self.task_id:
+            target += f" for task '{self.task_id}'"
+        return f"{target} at '{self.path}' {self.detail}"
+
+    def to_dict(self) -> dict[str, Any]:
+        data = {
+            "faultType": self.fault_type,
+            "recordKind": self.record_kind,
+            "path": self.path,
+            "teamName": self.team_name,
+            "message": str(self),
+        }
+        if self.task_id:
+            data["taskId"] = self.task_id
+        return data
+
+
+class TaskStoreCorruptionError(TaskStoreReadError):
+    """Raised when persisted task data is malformed or invalid."""
+
+    fault_type = "corrupt_record"
+
+
 def _tasks_root(team_name: str) -> Path:
     d = get_data_dir() / "tasks" / team_name
     d.mkdir(parents=True, exist_ok=True)
@@ -92,11 +138,21 @@ class TaskStore:
         path = _task_path(self.team_name, task_id)
         if not path.exists():
             return None
+        return self._load_task_from_path(path, task_id=task_id)
+
+    def _load_task_from_path(self, path: Path, *, task_id: str | None = None) -> TaskItem:
+        resolved_task_id = task_id or path.stem.removeprefix("task-")
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             return TaskItem.model_validate(data)
-        except Exception:
-            return None
+        except Exception as exc:
+            raise TaskStoreCorruptionError(
+                record_kind="task",
+                path=path,
+                detail=f"is unreadable or invalid: {exc}",
+                team_name=self.team_name,
+                task_id=resolved_task_id,
+            ) from exc
 
     def update(
         self,
@@ -206,22 +262,39 @@ class TaskStore:
     ) -> list[TaskItem]:
         return self._list_tasks_unlocked(status=status, owner=owner)
 
+    def inspect_tasks(
+        self,
+        status: TaskStatus | None = None,
+        owner: str | None = None,
+    ) -> tuple[list[TaskItem], list[dict[str, Any]]]:
+        root = _tasks_root(self.team_name)
+        tasks: list[TaskItem] = []
+        faults: list[dict[str, Any]] = []
+        for path in sorted(root.glob("task-*.json")):
+            try:
+                task = self._load_task_from_path(path)
+            except TaskStoreReadError as exc:
+                faults.append(exc.to_dict())
+                continue
+            if status and task.status != status:
+                continue
+            if owner and task.owner != owner:
+                continue
+            tasks.append(task)
+        return tasks, faults
+
     def _list_tasks_unlocked(
         self, status: TaskStatus | None = None, owner: str | None = None
     ) -> list[TaskItem]:
         root = _tasks_root(self.team_name)
-        tasks = []
-        for f in sorted(root.glob("task-*.json")):
-            try:
-                data = json.loads(f.read_text(encoding="utf-8"))
-                task = TaskItem.model_validate(data)
-                if status and task.status != status:
-                    continue
-                if owner and task.owner != owner:
-                    continue
-                tasks.append(task)
-            except Exception:
+        tasks: list[TaskItem] = []
+        for path in sorted(root.glob("task-*.json")):
+            task = self._load_task_from_path(path)
+            if status and task.status != status:
                 continue
+            if owner and task.owner != owner:
+                continue
+            tasks.append(task)
         return tasks
 
     def get_stats(self) -> dict[str, Any]:
@@ -258,6 +331,14 @@ class TaskStore:
             task = self._get_unlocked(task_id)
             if not task:
                 return None
+        from clawteam.coding.service import CodingService
+
+        CodingService().record_callback_report(self.team_name, report)
+
+        with self._write_lock():
+            task = self._get_unlocked(task_id)
+            if not task:
+                raise ValueError(f"Task '{task_id}' disappeared before callback metadata could be persisted.")
             callback_summary = json.loads(report.model_dump_json(by_alias=True, exclude_none=True))
             coding_meta = {
                 "latestJobId": report.job_id,
@@ -274,12 +355,6 @@ class TaskStore:
             task.metadata["codingHistory"] = history
             task.updated_at = _now_iso()
             self._save_unlocked(task)
-            try:
-                from clawteam.coding.service import CodingService
-
-                CodingService().record_callback_report(self.team_name, report)
-            except Exception:
-                pass
             return task
 
     def _save_unlocked(self, task: TaskItem) -> None:

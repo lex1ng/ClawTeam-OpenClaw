@@ -187,7 +187,19 @@ class CodingService:
             }
         )
         self.store.save_job(updated)
-        self.store.append_event(self._event_for_record(updated, self._event_type_for_state(result.status)))
+        try:
+            self.store.append_event(self._event_for_record(updated, self._event_type_for_state(result.status)))
+        except Exception as exc:
+            self._best_effort_record_coding_job_fault(
+                fault_type="coding_job_event_append_failed",
+                record=updated,
+                error=exc,
+                message=(
+                    f"Coding job '{updated.job_id}' reached durable terminal state '{updated.state.value}', "
+                    "but terminal event append failed."
+                ),
+                detail=f"eventType={self._event_type_for_state(result.status).value} error={exc}",
+            )
         self._best_effort_sync_runtime_console("mark_job_terminal", updated)
         return updated
 
@@ -301,21 +313,6 @@ class CodingService:
         report: WorkerCodingCallbackReport,
     ) -> CodingJobRecord:
         record = self.store.get_job(team_name, report.job_id)
-        try:
-            self.runtime_console.record_callback(team_name=team_name, report=report)
-        except Exception as exc:
-            self._best_effort_record_runtime_console_fault(
-                action="record_callback",
-                record=record,
-                error=exc,
-                team_name=team_name,
-                job_id=report.job_id,
-                task_id=report.task_id,
-                worker_name=report.worker_name,
-                session_id=report.session_id,
-                scope_type=RuntimeFaultScopeType.callback,
-                scope_id=report.job_id,
-            )
         if record is None:
             raise CodingJobNotFoundError(
                 f"Coding job '{report.job_id}' not found for team '{team_name}'"
@@ -330,6 +327,21 @@ class CodingService:
             }
         )
         self.store.save_job(updated)
+        try:
+            self.runtime_console.record_callback(team_name=team_name, report=report)
+        except Exception as exc:
+            self._best_effort_record_runtime_console_fault(
+                action="record_callback",
+                record=updated,
+                error=exc,
+                team_name=team_name,
+                job_id=report.job_id,
+                task_id=report.task_id,
+                worker_name=report.worker_name,
+                session_id=report.session_id,
+                scope_type=RuntimeFaultScopeType.callback,
+                scope_id=report.job_id,
+            )
         return updated
 
     def cancel_job(self, team_name: str, job_id: str, *, reason: str = "") -> CodingJobRecord:
@@ -623,6 +635,36 @@ class CodingService:
             self.store.save_job(updated)
             self.store.append_event(self._event_for_record(updated, CodingEventType.failed))
             self._best_effort_sync_runtime_console("mark_job_terminal", updated)
+        except Exception:
+            pass
+
+    def _best_effort_record_coding_job_fault(
+        self,
+        *,
+        fault_type: str,
+        record: CodingJobRecord,
+        error: Exception,
+        message: str,
+        detail: str = "",
+        suggested_action: str = "",
+    ) -> None:
+        try:
+            self.runtime_console.record_fault(
+                team_name=record.team_name,
+                fault_type=fault_type,
+                severity=RuntimeFaultSeverity.warning,
+                scope_type=RuntimeFaultScopeType.coding_job,
+                scope_id=record.job_id,
+                message=message,
+                detail=(
+                    f"jobId={record.job_id} taskId={record.task_id or '-'} "
+                    f"worker={record.worker_name} state={record.state.value} {detail}".strip()
+                ),
+                suggested_action=(
+                    suggested_action
+                    or "Inspect durable coding job state and missing coding-job event history for this job."
+                ),
+            )
         except Exception:
             pass
 

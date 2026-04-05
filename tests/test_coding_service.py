@@ -10,6 +10,7 @@ import pytest
 from clawteam.coding.harness.base import HarnessArtifact, HarnessExecution
 from clawteam.coding.models import (
     CodingAttemptKind,
+    CodingEventType,
     CodingExecRequest,
     CodingExecResult,
     CodingJobState,
@@ -393,6 +394,54 @@ class TestCodingService:
         assert faults[0].scope_id == "job-fixed"
         assert "mark_job_terminal" in faults[0].detail
         assert "timeline append failed" in faults[0].detail
+
+    def test_execute_preserves_terminal_state_when_completed_event_append_fails(self):
+        registry = CodingHarnessRegistry()
+
+        class FakeHarness:
+            provider = CodingProvider.claude
+
+            def exec(self, job_id, request, effective_cwd, startup_policy):
+                return HarnessExecution(
+                    result=CodingExecResult(
+                        jobId=job_id,
+                        provider=request.provider,
+                        effectiveCwd=effective_cwd,
+                        status="completed",
+                        summary="Executed through service",
+                    ),
+                    command=["claude"],
+                    artifactPayloads={},
+                )
+
+        registry.register(CodingProvider.claude, FakeHarness())
+        service = CodingService(registry=registry)
+        original_append_event = service.store.append_event
+
+        def fail_completed_event(event):
+            if event.event_type == CodingEventType.completed:
+                raise OSError("event append failed")
+            return original_append_event(event)
+
+        service.store.append_event = fail_completed_event
+        try:
+            result = service.execute(_request(), job_id_factory=lambda: "job-fixed")
+        finally:
+            service.store.append_event = original_append_event
+
+        assert result.status == CodingJobState.completed
+        record = service.require_job("alpha", "job-fixed")
+        assert record.state == CodingJobState.completed
+        loaded_result = service.store.load_result("alpha", "job-fixed")
+        assert loaded_result is not None
+        assert loaded_result.status == CodingJobState.completed
+        events = service.store.list_events("alpha", "job-fixed")
+        assert [event.event_type.value for event in events] == ["created", "started"]
+        faults = RuntimeConsoleStore().inspect_faults("alpha")[0]
+        assert len(faults) == 1
+        assert faults[0].fault_type == "coding_job_event_append_failed"
+        assert faults[0].scope_type.value == "coding_job"
+        assert faults[0].scope_id == "job-fixed"
 
     def test_execute_distinguishes_service_failure_from_provider_failure(self):
         registry = CodingHarnessRegistry()

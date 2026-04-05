@@ -109,6 +109,7 @@ class BoardHandler(BaseHTTPRequestHandler):
                         "summary": data["taskSummary"],
                         "grouped": data["tasks"],
                         "tasks": data["runtimeConsole"]["tasks"],
+                        "faults": data.get("taskReadFaults", []),
                     }
                 )
             elif route == ["coding", "jobs"]:

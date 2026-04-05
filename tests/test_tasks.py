@@ -5,9 +5,10 @@ from unittest.mock import patch
 import pytest
 
 from clawteam.coding import CodingExecRequest, CodingExecResult, CodingService
+from clawteam.coding.service import CodingJobNotFoundError
 from clawteam.runtime_console import RuntimeConsoleStore
-from clawteam.team.models import TaskItem, TaskStatus, WorkerCodingCallbackReport, WorkerCodingDecision
-from clawteam.team.tasks import TaskLockError, TaskStore
+from clawteam.team.models import TaskItem, TaskStatus, WorkerCodingCallbackReport, WorkerCodingDecision, get_data_dir
+from clawteam.team.tasks import TaskLockError, TaskStore, TaskStoreCorruptionError
 
 
 @pytest.fixture
@@ -317,6 +318,33 @@ class TestGetStats:
 class TestCodingCallbackMetadata:
     def test_record_coding_callback_updates_task_metadata(self, store):
         task = store.create("coding task")
+        service = CodingService()
+        service.create_job(
+            CodingExecRequest(
+                teamName=store.team_name,
+                workerName="worker-1",
+                workerId="worker-id-1",
+                leaderName="leader",
+                taskId=task.id,
+                provider="claude",
+                prompt="Implement callback metadata",
+                workerWorkspaceCwd="/tmp/worktree",
+                workerRuntimeCwd="/tmp/runtime",
+            ),
+            job_id_factory=lambda: "job-1",
+        )
+        service.mark_running(store.team_name, "job-1")
+        service.complete_job(
+            store.team_name,
+            "job-1",
+            CodingExecResult(
+                jobId="job-1",
+                provider="claude",
+                effectiveCwd="/tmp/worktree",
+                status="completed",
+                summary="done",
+            ),
+        )
         report = WorkerCodingCallbackReport(
             taskId=task.id,
             jobId="job-1",
@@ -516,3 +544,34 @@ class TestCodingCallbackMetadata:
         assert len(mismatch_faults) == 1
         assert mismatch_faults[0].scope_type.value == "callback"
         assert mismatch_faults[0].scope_id == "job-session-a"
+
+    def test_record_coding_callback_does_not_update_task_metadata_when_job_is_missing(self, store):
+        task = store.create("coding task")
+        report = WorkerCodingCallbackReport(
+            taskId=task.id,
+            jobId="missing-job",
+            provider="claude",
+            status="completed",
+            decision=WorkerCodingDecision.report_progress,
+            summary="Implemented feature",
+        )
+
+        with pytest.raises(CodingJobNotFoundError, match="missing-job"):
+            store.record_coding_callback(task.id, report)
+
+        reloaded = store.get(task.id)
+        assert reloaded is not None
+        assert "coding" not in reloaded.metadata
+        assert "codingHistory" not in reloaded.metadata
+        callback = RuntimeConsoleStore().load_callback_report(store.team_name, "missing-job")
+        assert callback is None
+
+
+class TestTaskReadFaults:
+    def test_get_raises_explicitly_for_corrupt_task_record(self, store):
+        task = store.create("corrupt me")
+        path = get_data_dir() / "tasks" / store.team_name / f"task-{task.id}.json"
+        path.write_text("{bad-json", encoding="utf-8")
+
+        with pytest.raises(TaskStoreCorruptionError):
+            store.get(task.id)
