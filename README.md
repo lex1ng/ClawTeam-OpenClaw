@@ -84,47 +84,85 @@ clawteam board serve --port 8080
 
 ---
 
-## Coding Callback Runtime
+## Coding Callback Runtime and Runtime Console
 
-The coding callback runtime treats Claude Code and Codex as externally configured providers. ClawTeam-OpenClaw does not manage their models, profiles, accounts, or provider config. It only chooses the executable, applies startup flags, runs in the worker workspace, captures execution output, and returns a normalized result to the same worker.
+ClawTeam-OpenClaw ships a durable coding callback runtime plus a Runtime Console operator surface.
 
-V1 runtime constraints:
+What is implemented today:
 
-- `1 worker = 1 active coding job`
-- `1 task = 1 active provider execution`
-- job state is separate from worker decision
-- default execution stays inside the worker worktree/workspace boundary
-- success requires verifiable structured normalization; raw stdout/stderr are still preserved
+- the worker owns the worktree/workspace and invokes the coding provider there
+- the coding provider result returns to the same worker as structured callback data
+- the worker decides whether to continue, report progress, escalate, complete, or block at the task layer
+- the leader only consumes summarized task-facing output
+- durable job state, events, artifacts, provider-session records, callback reports, faults, and timeline are inspectable from CLI, Rich board, JSON, and the convenience Web UI
 
-Persisted coding runtime data lives under:
+Support and authority model:
+
+- **OpenClaw** is the default multi-agent backend and the best-documented spawn path in this fork
+- **Claude Code** and **Codex** are the current coding-runtime provider executables for `clawteam coding exec`
+- provider config remains external: ClawTeam-OpenClaw does not manage models, profiles, accounts, or provider orchestration for Claude Code or Codex
+- authoritative operator surfaces are:
+  - persisted runtime files under `~/.clawteam/`
+  - CLI output
+  - Rich board output
+- `clawteam board serve` is a convenience UI over the same durable state; it is not the authority
+- success depends on verifiable structured normalization, not provider process exit alone
+
+Persisted state lives under:
 
 - `~/.clawteam/coding/jobs/<team>/`
 - `~/.clawteam/coding/results/<team>/`
 - `~/.clawteam/coding/events/<team>/`
 - `~/.clawteam/coding/artifacts/<team>/`
+- `~/.clawteam/runtime-console/provider-sessions/<team>/`
+- `~/.clawteam/runtime-console/callbacks/<team>/`
+- `~/.clawteam/runtime-console/faults/<team>/`
+- `~/.clawteam/runtime-console/timeline/<team>/`
 
-Use `clawteam board show <team>` or `clawteam --json board show <team>` to inspect the latest coding job summaries, storage paths, and task-linked coding metadata.
-
-Example:
+Core operator commands:
 
 ```bash
-# Run a coding callback inside the current worker workspace
+# Execute inside the current worker workspace / worktree
 clawteam coding exec claude "Implement retry handling for the coding runtime" \
   --team my-team \
   --task-id task-123
 
-# Inspect durable job state later
+# Inspect durable coding job state
+clawteam coding list --team my-team
 clawteam coding status <job-id> --team my-team
+clawteam coding result <job-id> --team my-team
+clawteam coding events <job-id> --team my-team
+clawteam coding artifacts <job-id> --team my-team
+clawteam coding artifact <job-id> --name stdoutLog --team my-team
 clawteam coding wait <job-id> --team my-team
+
+# Inspect provider sessions, runtime faults, and the unified timeline
+clawteam coding session list --team my-team
+clawteam coding session show <session-id> --team my-team
+clawteam coding session jobs <session-id> --team my-team
+clawteam coding session events <session-id> --team my-team
+clawteam faults list --team my-team
+clawteam faults show <fault-id> --team my-team
+clawteam audit timeline --team my-team
+
+# Inspect the same durable model from board surfaces
+clawteam board show my-team
+clawteam --json board show my-team
+clawteam board serve --port 8080
 ```
 
 Current V1 limits:
 
-- provider configuration remains external to ClawTeam-OpenClaw
-- success depends on structured result normalization, not exit code alone
+- `1 worker = 1 active coding job`
+- `1 task = 1 active provider execution`
+- coding job state is separate from worker decision
+- default execution stays inside the worker worktree/workspace boundary unless explicitly overridden and allowed
+- current coding-runtime provider adapters are `claude` and `codex`
 - live cancellation is durable-state only; detached process control is a later version concern
-- CLI/Rich board plus persisted runtime files are the operational source of truth
-- `board serve` is a convenience UI and currently depends on external CDN assets
+- detached async callback delivery, stronger live control semantics, and reconciliation/recovery are not implemented in this V1
+- `board serve` currently depends on external CDN assets
+
+See [docs/runtime-console-operator-guide.md](docs/runtime-console-operator-guide.md) for the operator guide covering authority model, command usage, support boundaries, and current V1 limits.
 
 ---
 
@@ -164,6 +202,8 @@ clawteam board attach my-team
 | [nanobot](https://github.com/HKUDS/nanobot) | `clawteam spawn tmux nanobot --team ...` | Full support |
 | [Cursor](https://cursor.com) | `clawteam spawn subprocess cursor --team ...` | Experimental |
 | Custom scripts | `clawteam spawn subprocess python --team ...` | Full support |
+
+> `clawteam coding exec` is narrower than general spawn support: the current coding-runtime provider adapters are `claude` and `codex`. OpenClaw remains the default agent/swarm backend, while Claude Code and Codex remain externally configured coding providers.
 
 ---
 
@@ -380,10 +420,11 @@ Templates are TOML files — **create your own** for any domain.
 - File-based (default) or ZeroMQ P2P transport
 
 ### Monitoring & Dashboards
-- `board show` — terminal kanban
+- `board show` — terminal kanban plus coding/runtime summaries and fault surfaces
 - `board live` — auto-refreshing dashboard
 - `board attach` — tiled tmux view of all agents
-- `board serve` — Web UI with real-time updates
+- `board serve` — convenience Web UI over durable state
+- `coding` / `faults` / `audit` — durable runtime inspection and audit CLI
 
 ### Team Templates
 - TOML files define team archetypes (roles, tasks, prompts)
@@ -418,6 +459,12 @@ Once the skill is installed, talk to your OpenClaw bot in any channel:
 | "Create a 5-agent team to build a web app" | Creates team, tasks, spawns 5 agents in tmux |
 | "Launch a hedge-fund analysis team" | `clawteam launch hedge-fund` with 7 agents |
 | "Check the status of my agent team" | `clawteam board show` with kanban output |
+
+OpenClaw versus non-OpenClaw support in this fork:
+
+- OpenClaw is the default swarm path and has dedicated install, skill, and approvals guidance in this README
+- Claude Code and Codex are supported both as spawned agents and as coding-runtime provider executables, but their provider configuration is still external to ClawTeam-OpenClaw
+- generic/custom CLI agents can participate in team topology, tasks, inbox, lifecycle, and board surfaces, but the current coding callback runtime provider adapters are limited to `claude` and `codex`
 
 ```
   You (Telegram/Discord/TUI)
@@ -513,6 +560,42 @@ clawteam board show <team>                # terminal kanban
 clawteam board live <team> --interval 3   # auto-refresh
 clawteam board attach <team>              # tiled tmux view
 clawteam board serve --port 8080          # web UI
+```
+
+</details>
+
+<details>
+<summary><strong>Coding Runtime and Runtime Console</strong></summary>
+
+```bash
+# Coding job execution and inspection
+clawteam coding exec claude "Implement runtime callback handling" --team <team> --task-id <task>
+clawteam coding list --team <team>
+clawteam coding status <job-id> --team <team>
+clawteam coding result <job-id> --team <team>
+clawteam coding events <job-id> --team <team>
+clawteam coding artifacts <job-id> --team <team>
+clawteam coding artifact <job-id> --name stdoutLog --team <team>
+clawteam coding wait <job-id> --team <team>
+clawteam coding cancel <job-id> --team <team> --reason "operator requested stop"
+clawteam coding retry <job-id> --team <team>
+clawteam coding replay <job-id> --team <team>
+
+# Provider-session and callback-loop inspection
+clawteam coding session list --team <team>
+clawteam coding session show <session-id> --team <team>
+clawteam coding session jobs <session-id> --team <team>
+clawteam coding session events <session-id> --team <team>
+
+# Explicit faults and unified runtime timeline
+clawteam faults list --team <team>
+clawteam faults show <fault-id> --team <team>
+clawteam audit timeline --team <team>
+
+# Board surfaces over the same durable model
+clawteam board show <team>
+clawteam --json board show <team>
+clawteam board serve --port 8080
 ```
 
 </details>

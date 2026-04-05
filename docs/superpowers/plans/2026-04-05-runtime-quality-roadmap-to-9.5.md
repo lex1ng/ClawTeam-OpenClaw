@@ -16,7 +16,7 @@ The current state is best described as:
 - a strong V1
 - suitable for real internal usage
 - structurally credible
-- mostly trustworthy inside its declared scope
+- trustworthy inside its declared scope
 - not yet at the "nearly fully trusted" 9.5+ level
 
 Current overall judgement:
@@ -25,11 +25,11 @@ Current overall judgement:
 - core callback runtime: strong
 - Runtime Console: real subsystem
 - CLI + board operator surface: useful and credible
-- remaining gap: degraded-path consistency, operator trust, recovery strength, and fault-aware behavior on the task side
+- remaining gap: next-stage control, delivery, reconciliation, and hostile-state assurance
 
 Current overall score:
 
-- approximately `8.7 ~ 8.8 / 10`
+- approximately `9.0 ~ 9.1 / 10`
 
 Target:
 
@@ -73,47 +73,47 @@ Do not regress them while hardening:
 
 ## Current Residual Risks
 
-These are the main remaining risks after the current fix set.
+These are the main remaining risks after the current `9.1` baseline.
 
-### 1. Task corruption is not yet handled consistently across all operational call sites
+### 1. Callback delivery is still the synchronous V1 model
 
-`TaskStore.list_tasks()` now fails closed on corrupt task files.
+The current architecture intentionally keeps callback delivery coupled to the present worker-driven flow.
 
-That is correct at the store contract level because corruption must not be silently treated as "missing".
+This is acceptable for the current baseline.
 
-However, some higher-level operational paths still call `list_tasks()` directly, which means a single bad task file can now interrupt:
+It is still a gap relative to the `9.5+` target because detached async delivery and stronger callback recovery are not implemented.
 
-- waiter progress loops
-- dead-agent recovery checks
-- task list CLI
-- agent cleanup/recovery paths
+### 2. Control semantics remain the current durable-state V1 model
 
-This is the biggest remaining implementation-level quality gap.
+The current system exposes durable job/session/task truth clearly.
 
-### 2. Task read faults are in board payloads, but not yet rendered as first-class operator warnings
+It does not yet provide stronger live control semantics such as:
 
-The board already exposes task read faults through durable JSON/API.
+- stronger kill/cancel acknowledgement
+- richer attach/reattach control
+- explicit control-operation records beyond the current durable state model
 
-But the Web UI does not yet visibly elevate them as a clear operator warning.
+### 3. Reconciliation and hostile-state recovery are not yet first-class
 
-That weakens trust because the board can still look healthy while part of the task layer is degraded.
+The current implementation preserves truth boundaries and surfaces corruption honestly.
 
-### 3. Failure-mode coverage is still stronger on coding/runtime-console than on task/runtime integration
+It does not yet provide a dedicated reconciliation layer for:
 
-There is already good targeted test coverage for:
+- callback recovery
+- session/job truth re-establishment
+- crash/interruption rebuild flows
+- stronger post-failure recovery semantics
 
-- runtime-console corruption
-- callback/session linkage
-- board artifact preview boundaries
+### 4. Documentation and operator guidance must stay aligned with the shipped surfaces
 
-But the quality bar for:
+The runtime has grown into a real subsystem.
 
-- corrupt task + waiter behavior
-- corrupt task + cleanup behavior
-- corrupt task + task-list CLI degraded behavior
-- mixed task/runtime fault presentation
+The README and operator-facing guidance must stay synchronized with:
 
-is not yet equally strong.
+- the actual CLI/runtime-console surfaces
+- the board authority model
+- the current OpenClaw versus non-OpenClaw support boundary
+- current V1 limits and non-goals
 
 ## Progress Snapshot After This Hardening Pass
 
@@ -149,11 +149,17 @@ What this did **not** do:
 
 This work should be implemented in three layers.
 
+At the current `9.1` baseline:
+
+- Layer 1 is materially complete
+- Layer 2 is materially complete for the currently declared hardening scope
+- the active next step is documentation alignment followed by Layer 3 design preparation
+
 ## Layer 1: Finish The Strong V1
 
-This is the immediate next step.
+This layer is now substantially complete.
 
-It is the shortest path from `8.8` to roughly `9.0+`.
+Keep it here as the closure record for the hardening work that established the `9.1` baseline.
 
 ### Workstream A: Make task list/read surfaces degrade with explicit faults
 
@@ -226,7 +232,9 @@ Add or update tests for:
 
 ## Layer 2: Raise Operator Trust And Diagnostic Quality
 
-This layer should take the project from roughly `9.0` toward `9.2 ~ 9.3`.
+This layer is also materially complete for the currently declared V1 hardening scope.
+
+Keep it here as the closure record for fault-surface and mixed-fault hardening work.
 
 ### Workstream D: Unify fault presentation across task, coding, runtime-console, and board
 
@@ -349,14 +357,16 @@ The project should only be considered `9.5+` when all of the following are true:
 
 ## Delivery Order
 
-The coding agent should implement in this order:
+Treat the current branch as a successful `9.1` baseline.
 
-1. task degrade-with-fault operational call sites
-2. board task read-fault UI
-3. task corruption integration tests
-4. fault presentation unification
-5. mixed-fault tests
-6. design follow-up for detached async callback, stronger control, and reconciliation
+The coding agent should implement from here in this order:
+
+1. user-facing documentation alignment for the shipped runtime-console and coding-runtime surfaces
+2. operator guidance alignment for authority model, board role, support boundaries, and V1 limits
+3. detached async callback design preparation
+4. stronger control semantics design preparation
+5. reconciliation/recovery design preparation
+6. stronger hostile-state and mixed-fault assurance after the design prep is clear
 
 ## Reporting Requirements
 
@@ -388,16 +398,16 @@ Then continue hardening the project toward the 9.5+ quality bar.
 
 Immediate implementation priority:
 P0:
-- make task operational call sites degrade with explicit faults instead of failing wholesale on one corrupt task file
-- render taskReadFaults clearly in the board UI
-- add integration tests for corrupt-task operational behavior
+- update README and operator-facing usage guidance so the shipped runtime-console/coding-runtime surfaces are accurately documented
+- align board role, authority model, support boundaries, and current V1 limits with the implementation
 
 P1:
-- unify fault presentation across task/coding/runtime-console surfaces
-- add mixed-fault tests
+- prepare the next-stage design for detached async callback
+- prepare the next-stage design for stronger control semantics
+- prepare the next-stage design for reconciliation and recovery
 
 P2:
-- prepare the next-stage design for detached async callback, stronger control semantics, and reconciliation
+- extend implementation only after documentation and design prep stay aligned with the shipped 9.1 baseline
 
 Rules:
 - do not redesign the current callback architecture in this pass
