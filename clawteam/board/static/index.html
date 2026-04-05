@@ -497,6 +497,7 @@
 <!-- Convenience UI only: operational source of truth remains durable state and CLI/Rich board output. -->
 <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="/runtime_console_helpers.js"></script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
@@ -506,6 +507,7 @@
 <div id="root"></div>
 <script type="text/babel">
 const { useEffect, useMemo, useRef, useState } = React;
+const { artifactPreviewRoute, resolveSelection } = window.RuntimeConsoleHelpers;
 
 function safe(value, fallback = "unavailable") {
   if (value === null || value === undefined || value === "") {
@@ -570,28 +572,6 @@ function buildHealthCards(data) {
     { label: "Callbacks", value: callbackSummary.total || 0, meta: `reported ${callbackSummary.reported || 0} / escalated ${callbackSummary.escalated || 0}`, color: "var(--green)" },
     { label: "Faults", value: faultSummary.total || 0, meta: "explicit runtime-visible faults", color: faultSummary.total ? "var(--red)" : "var(--green)" },
   ];
-}
-
-function useDefaultSelection(data, selected, setSelected) {
-  useEffect(() => {
-    if (!data) return;
-    const runtime = data.runtimeConsole || {};
-    if (runtime.faults && runtime.faults.length) {
-      setSelected({ type: "fault", id: runtime.faults[0].faultId || runtime.faults[0].message, data: runtime.faults[0] });
-      return;
-    }
-    if (runtime.sessions && runtime.sessions.length) {
-      setSelected({ type: "session", id: runtime.sessions[0].sessionId, data: runtime.sessions[0] });
-      return;
-    }
-    if (runtime.jobs && runtime.jobs.length) {
-      setSelected({ type: "job", id: runtime.jobs[0].jobId, data: runtime.jobs[0] });
-      return;
-    }
-    if (runtime.tasks && runtime.tasks.length) {
-      setSelected({ type: "task", id: runtime.tasks[0].id, data: runtime.tasks[0] });
-    }
-  }, [data]);
 }
 
 function Panel({ title, subtitle, badge, children }) {
@@ -885,9 +865,35 @@ function KeyValue({ label, value }) {
   );
 }
 
+function ArtifactPreviewView({ payload }) {
+  if (!payload) {
+    return <div className="empty">No artifact preview available.</div>;
+  }
+  return (
+    <>
+      <div className="kv-grid">
+        <KeyValue label="Artifact" value={payload.name} />
+        <KeyValue label="Path" value={payload.path} />
+        <KeyValue label="Exists" value={payload.exists ? "yes" : "no"} />
+        <KeyValue label="Bytes" value={payload.sizeBytes ?? "-"} />
+        <KeyValue label="Binary" value={payload.isBinary ? "yes" : "no"} />
+        <KeyValue label="Truncated" value={payload.truncated ? "yes" : "no"} />
+      </div>
+      {payload.unavailableReason ? (
+        <div className="empty">Artifact preview unavailable: {payload.unavailableReason}</div>
+      ) : payload.content !== null ? (
+        <pre className="raw">{payload.content}</pre>
+      ) : (
+        <div className="empty">No artifact content available.</div>
+      )}
+    </>
+  );
+}
+
 function DetailDrawer({ data, selected }) {
   const tabs = buildTabs(selected);
   const [activeTab, setActiveTab] = useState(tabs[0]);
+  const [artifactPreview, setArtifactPreview] = useState({ status: "idle", payload: null, error: "" });
 
   useEffect(() => {
     setActiveTab(tabs[0]);
@@ -920,6 +926,29 @@ function DetailDrawer({ data, selected }) {
   const artifacts = relatedArtifacts(selected);
   const stdoutArtifact = artifacts.find(artifact => artifact.name.toLowerCase().includes("stdout"));
   const stderrArtifact = artifacts.find(artifact => artifact.name.toLowerCase().includes("stderr"));
+
+  useEffect(() => {
+    const artifact = activeTab === "stdout" ? stdoutArtifact : activeTab === "stderr" ? stderrArtifact : null;
+    if (selected?.type !== "job" || !artifact) {
+      setArtifactPreview({ status: "idle", payload: null, error: "" });
+      return;
+    }
+    let cancelled = false;
+    setArtifactPreview({ status: "loading", payload: null, error: "" });
+    fetch(artifactPreviewRoute(data.team.name, selected.data.jobId, artifact.name))
+      .then(response => response.json())
+      .then(payload => {
+        if (!cancelled) {
+          setArtifactPreview({ status: "loaded", payload, error: "" });
+        }
+      })
+      .catch(error => {
+        if (!cancelled) {
+          setArtifactPreview({ status: "error", payload: null, error: String(error) });
+        }
+      });
+    return () => { cancelled = true; };
+  }, [activeTab, data.team.name, selected?.id, selected?.type]);
 
   function summaryView() {
     if (selected.type === "job") {
@@ -1040,14 +1069,16 @@ function DetailDrawer({ data, selected }) {
         : <div className="empty">No callback report persisted for this job.</div>;
     }
     if (activeTab === "stdout") {
-      return stdoutArtifact
-        ? <div className="kv-grid"><KeyValue label="stdout artifact" value={stdoutArtifact.path} /></div>
-        : <div className="empty">No stdout artifact path is persisted for this object.</div>;
+      if (!stdoutArtifact) return <div className="empty">No stdout artifact path is persisted for this object.</div>;
+      if (artifactPreview.status === "loading") return <div className="empty">Loading stdout preview…</div>;
+      if (artifactPreview.status === "error") return <div className="empty">stdout preview failed: {artifactPreview.error}</div>;
+      return <ArtifactPreviewView payload={artifactPreview.payload} />;
     }
     if (activeTab === "stderr") {
-      return stderrArtifact
-        ? <div className="kv-grid"><KeyValue label="stderr artifact" value={stderrArtifact.path} /></div>
-        : <div className="empty">No stderr artifact path is persisted for this object.</div>;
+      if (!stderrArtifact) return <div className="empty">No stderr artifact path is persisted for this object.</div>;
+      if (artifactPreview.status === "loading") return <div className="empty">Loading stderr preview…</div>;
+      if (artifactPreview.status === "error") return <div className="empty">stderr preview failed: {artifactPreview.error}</div>;
+      return <ArtifactPreviewView payload={artifactPreview.payload} />;
     }
     if (activeTab === "Session Info") {
       return <pre className="raw">{JSON.stringify(selected.data, null, 2)}</pre>;
@@ -1178,7 +1209,10 @@ function App() {
   const [lastRefresh, setLastRefresh] = useState("");
   const sourceRef = useRef(null);
 
-  useDefaultSelection(data, selected, setSelected);
+  useEffect(() => {
+    if (!data) return;
+    setSelected((previous) => resolveSelection(previous, data.runtimeConsole || {}));
+  }, [data]);
 
   useEffect(() => {
     fetch("/api/overview")

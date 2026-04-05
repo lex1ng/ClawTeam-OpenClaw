@@ -1480,6 +1480,7 @@ def _coding_session_list_human(data: dict):
             record.get("callbackStatus") or "not_applicable",
         )
     console.print(table)
+    _print_read_faults(data)
 
 
 def _coding_session_human(data: dict):
@@ -1512,13 +1513,18 @@ def _faults_human(data: dict):
     table.add_column("Message")
     for fault in data["faults"]:
         table.add_row(
-            fault["faultId"],
-            fault["severity"],
-            f"{fault['scopeType']}:{fault['scopeId']}",
-            fault["status"],
+            fault.get("faultId", fault.get("recordId", "-")),
+            fault.get("severity", "warning"),
+            (
+                f"{fault.get('scopeType')}:{fault.get('scopeId')}"
+                if fault.get("scopeType")
+                else fault.get("recordKind", "-")
+            ),
+            fault.get("status", "open"),
             fault["message"],
         )
     console.print(table)
+    _print_read_faults(data)
 
 
 def _fault_human(data: dict):
@@ -1551,6 +1557,7 @@ def _timeline_human(data: dict):
             event["summary"],
         )
     console.print(table)
+    _print_read_faults(data)
 
 
 def _artifact_entries(data: dict) -> list[dict]:
@@ -1568,6 +1575,22 @@ def _artifact_entries(data: dict) -> list[dict]:
             }
         )
     return entries
+
+
+def _print_read_faults(data: dict) -> None:
+    if not data.get("readFaults"):
+        return
+    table = Table(title="Durable Read Faults")
+    table.add_column("Kind", style="cyan")
+    table.add_column("Record")
+    table.add_column("Message")
+    for fault in data["readFaults"]:
+        table.add_row(
+            fault.get("faultType", "-"),
+            fault.get("recordKind", "-"),
+            fault.get("message", "-"),
+        )
+    console.print(table)
 
 
 @coding_app.command("exec")
@@ -1898,15 +1921,12 @@ def coding_session_list(
     from clawteam.runtime_console import RuntimeConsoleStore
 
     team_name = _resolve_coding_team(team)
-    try:
-        sessions = RuntimeConsoleStore().list_provider_sessions(team_name)
-    except ValueError as exc:
-        _print_error(str(exc))
-        raise typer.Exit(1)
+    sessions, read_faults = RuntimeConsoleStore().inspect_provider_sessions(team_name)
     _output(
         {
             "teamName": team_name,
             "sessions": [_dump(session) for session in sessions],
+            "readFaults": read_faults,
         },
         _coding_session_list_human,
     )
@@ -1965,6 +1985,7 @@ def coding_session_events(
 ):
     """Show runtime timeline events scoped to one provider session record."""
     from clawteam.runtime_console import RuntimeConsoleStore
+    from clawteam.runtime_console.service import RuntimeConsoleService
 
     team_name = _resolve_coding_team(team)
     try:
@@ -1973,11 +1994,10 @@ def coding_session_events(
         if session is None:
             _print_error(f"Provider session '{session_id}' not found for team '{team_name}'.")
             raise typer.Exit(1)
-        events = [
-            _dump(event)
-            for event in store.list_timeline(team_name)
-            if event.scope_type.value == "provider_session" and event.scope_id == session_id
-        ]
+        events, read_faults = RuntimeConsoleService(store=store).inspect_session_timeline(
+            team_name=team_name,
+            session_id=session_id,
+        )
     except ValueError as exc:
         _print_error(str(exc))
         raise typer.Exit(1)
@@ -1985,7 +2005,8 @@ def coding_session_events(
         {
             "teamName": team_name,
             "sessionId": session_id,
-            "events": events,
+            "events": [_dump(event) for event in events],
+            "readFaults": read_faults,
         },
         _timeline_human,
     )
@@ -2007,15 +2028,12 @@ def faults_list(
     from clawteam.runtime_console import RuntimeConsoleStore
 
     team_name = _resolve_coding_team(team)
-    try:
-        faults = RuntimeConsoleStore().list_faults(team_name)
-    except ValueError as exc:
-        _print_error(str(exc))
-        raise typer.Exit(1)
+    faults, read_faults = RuntimeConsoleStore().inspect_faults(team_name)
     _output(
         {
             "teamName": team_name,
             "faults": [_dump(fault) for fault in faults],
+            "readFaults": read_faults,
         },
         _faults_human,
     )
@@ -2053,15 +2071,12 @@ def audit_timeline(
     from clawteam.runtime_console import RuntimeConsoleStore
 
     team_name = _resolve_coding_team(team)
-    try:
-        events = RuntimeConsoleStore().list_timeline(team_name)
-    except ValueError as exc:
-        _print_error(str(exc))
-        raise typer.Exit(1)
+    events, read_faults = RuntimeConsoleStore().inspect_timeline(team_name)
     _output(
         {
             "teamName": team_name,
             "events": [_dump(event) for event in events],
+            "readFaults": read_faults,
         },
         _timeline_human,
     )

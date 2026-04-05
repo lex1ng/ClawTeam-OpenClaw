@@ -129,6 +129,11 @@ def test_board_server_exposes_runtime_console_api(monkeypatch, tmp_path):
         payload = _get_json(base_url, f"/api/teams/demo/coding/jobs/{completed.job_id}/artifacts")
         assert payload["artifacts"][0]["name"] in {"jobRecord", "resultJson", "stdoutLog"}
 
+        payload = _get_json(base_url, f"/api/teams/demo/coding/jobs/{completed.job_id}/artifacts/stdoutLog")
+        assert payload["name"] == "stdoutLog"
+        assert payload["content"] == "board stdout\n"
+        assert payload["truncated"] is False
+
         payload = _get_json(base_url, "/api/teams/demo/coding/sessions")
         assert payload["sessions"][0]["sessionId"] == completed.provider_session_ref
         assert payload["sessions"][0]["sessionMode"] == "ephemeral"

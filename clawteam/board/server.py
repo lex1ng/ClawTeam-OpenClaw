@@ -25,6 +25,16 @@ class BoardHandler(BaseHTTPRequestHandler):
 
         if path == "/" or path == "/index.html":
             self._serve_static("index.html", "text/html")
+        elif path.startswith("/") and (_STATIC_DIR / path.lstrip("/")).exists():
+            filename = path.lstrip("/")
+            content_type = "text/plain"
+            if filename.endswith(".js"):
+                content_type = "application/javascript"
+            elif filename.endswith(".css"):
+                content_type = "text/css"
+            elif filename.endswith(".html"):
+                content_type = "text/html"
+            self._serve_static(filename, content_type)
         elif path == "/api/overview":
             self._serve_json(self.collector.collect_overview())
         elif path.startswith("/api/board/"):
@@ -111,6 +121,10 @@ class BoardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self.collector.collect_coding_job_result(team_name, route[2]))
             elif len(route) == 4 and route[:2] == ["coding", "jobs"] and route[3] == "artifacts":
                 self._serve_json(self.collector.collect_coding_job_artifacts(team_name, route[2]))
+            elif len(route) == 5 and route[:2] == ["coding", "jobs"] and route[3] == "artifacts":
+                self._serve_json(
+                    self.collector.collect_coding_job_artifact_preview(team_name, route[2], route[4])
+                )
             elif route == ["coding", "sessions"]:
                 self._serve_json(self.collector.collect_provider_sessions(team_name))
             elif len(route) == 3 and route[:2] == ["coding", "sessions"]:

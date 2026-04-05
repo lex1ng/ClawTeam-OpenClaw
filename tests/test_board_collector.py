@@ -128,6 +128,59 @@ def test_board_collector_runtime_console_faults_include_explicit_runtime_faults(
     assert data["runtimeConsole"]["summary"]["faults"]["total"] == 1
 
 
+def test_board_collector_session_events_include_callback_linked_events(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAWTEAM_DATA_DIR", str(tmp_path))
+    TeamManager.create_team(name="demo", leader_name="leader", leader_id="leader-001")
+
+    task_store = TaskStore("demo")
+    task = task_store.create("Implement callback runtime", owner="worker1")
+
+    service = CodingService()
+    service.create_job(
+        CodingExecRequest(
+            teamName="demo",
+            workerName="worker1",
+            workerId="worker-001",
+            taskId=task.id,
+            provider="claude",
+            prompt="Queued job",
+            workerWorkspaceCwd="/tmp/worktree",
+            workerRuntimeCwd="/tmp/runtime",
+        ),
+        job_id_factory=lambda: "job-session-events",
+    )
+    service.mark_running("demo", "job-session-events")
+    completed = service.complete_job(
+        "demo",
+        "job-session-events",
+        CodingExecResult(
+            jobId="job-session-events",
+            provider="claude",
+            effectiveCwd="/tmp/worktree",
+            status="completed",
+            summary="Implemented runtime collector hooks",
+        ),
+    )
+    task_store.record_coding_callback(
+        task.id,
+        WorkerCodingCallbackReport.from_coding_result(
+            task_id=task.id,
+            job_id=completed.job_id,
+            provider=completed.provider.value,
+            status=completed.state.value,
+            decision=WorkerCodingDecision.report_progress,
+            summary="Collector hooks implemented and recorded.",
+            artifact_paths=completed.artifact_paths,
+        ),
+    )
+
+    payload = BoardCollector().collect_provider_session_events("demo", completed.provider_session_ref)
+    event_types = [event["eventType"] for event in payload["events"]]
+
+    assert "provider_session_attached" in event_types
+    assert "callback_reported" in event_types
+
+
 def test_board_show_json_includes_coding_section(monkeypatch, tmp_path):
     monkeypatch.setenv("CLAWTEAM_DATA_DIR", str(tmp_path))
     TeamManager.create_team(name="demo", leader_name="leader", leader_id="leader-001")

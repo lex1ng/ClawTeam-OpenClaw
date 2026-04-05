@@ -12,6 +12,9 @@ from clawteam.runtime_console.models import (
     ProviderSessionRecord,
     ProviderSessionMode,
     ProviderSessionState,
+    RuntimeFaultRecord,
+    RuntimeFaultScopeType,
+    RuntimeFaultSeverity,
     RuntimeTimelineActorType,
     RuntimeTimelineEvent,
     RuntimeTimelineEventType,
@@ -31,6 +34,10 @@ def _now_iso() -> str:
 
 def _new_timeline_event_id() -> str:
     return f"rt-{uuid.uuid4().hex[:12]}"
+
+
+def _new_fault_id() -> str:
+    return f"rtfault-{uuid.uuid4().hex[:12]}"
 
 
 class RuntimeConsoleService:
@@ -156,7 +163,7 @@ class RuntimeConsoleService:
         team_name: str,
         report: WorkerCodingCallbackReport,
     ) -> CallbackReportRecord:
-        session_id = report.session_id
+        session_id = self._resolve_callback_session_id(team_name=team_name, report=report)
         callback = CallbackReportRecord(
             teamName=team_name,
             taskId=report.task_id,
@@ -196,6 +203,25 @@ class RuntimeConsoleService:
                     }
                 )
                 self.store.save_provider_session(updated)
+            else:
+                self.record_fault(
+                    team_name=team_name,
+                    fault_type="callback_session_not_found",
+                    severity=RuntimeFaultSeverity.warning,
+                    scope_type=RuntimeFaultScopeType.callback,
+                    scope_id=report.job_id,
+                    message=(
+                        f"Callback for job {report.job_id} resolved session linkage '{session_id}', "
+                        "but no provider session record exists to close."
+                    ),
+                    detail=(
+                        f"jobId={report.job_id} taskId={report.task_id or '-'} "
+                        f"worker={report.worker_name or '-'} sessionId={session_id}"
+                    ),
+                    suggested_action=(
+                        "Inspect runtime-console sync faults and provider session persistence for this job."
+                    ),
+                )
         self.store.append_timeline_event(
             team_name,
             RuntimeTimelineEvent(
@@ -216,6 +242,49 @@ class RuntimeConsoleService:
         )
         return callback
 
+    def record_fault(
+        self,
+        *,
+        team_name: str,
+        fault_type: str,
+        severity: RuntimeFaultSeverity,
+        scope_type: RuntimeFaultScopeType,
+        scope_id: str,
+        message: str,
+        detail: str = "",
+        suggested_action: str = "",
+    ) -> RuntimeFaultRecord:
+        fault = RuntimeFaultRecord(
+            faultId=_new_fault_id(),
+            faultType=fault_type,
+            severity=severity,
+            scopeType=scope_type,
+            scopeId=scope_id,
+            teamName=team_name,
+            message=message,
+            detail=detail,
+            suggestedAction=suggested_action,
+        )
+        self.store.save_fault(fault)
+        self.store.append_timeline_event(
+            team_name,
+            RuntimeTimelineEvent(
+                eventId=_new_timeline_event_id(),
+                eventType=RuntimeTimelineEventType.fault_detected,
+                teamName=team_name,
+                scopeType=RuntimeTimelineScopeType.fault,
+                scopeId=fault.fault_id,
+                actorType=RuntimeTimelineActorType.runtime,
+                actorId="runtime_console",
+                summary=message,
+                links={
+                    "faultId": fault.fault_id,
+                    "scopeId": scope_id,
+                },
+            ),
+        )
+        return fault
+
     def list_provider_sessions(self, team_name: str) -> list[ProviderSessionRecord]:
         return self.store.list_provider_sessions(team_name)
 
@@ -224,6 +293,61 @@ class RuntimeConsoleService:
 
     def list_timeline(self, team_name: str) -> list[RuntimeTimelineEvent]:
         return self.store.list_timeline(team_name)
+
+    def inspect_session_timeline(
+        self,
+        *,
+        team_name: str,
+        session_id: str,
+    ) -> tuple[list[RuntimeTimelineEvent], list[dict[str, str]]]:
+        timeline, faults = self.store.inspect_timeline(team_name)
+        events: list[RuntimeTimelineEvent] = []
+        seen_event_ids: set[str] = set()
+        for event in timeline:
+            linked_session_id = event.links.get("sessionId")
+            matches = (
+                event.scope_type == RuntimeTimelineScopeType.provider_session
+                and event.scope_id == session_id
+            ) or linked_session_id == session_id
+            if not matches or event.event_id in seen_event_ids:
+                continue
+            seen_event_ids.add(event.event_id)
+            events.append(event)
+        return events, faults
+
+    def _resolve_callback_session_id(
+        self,
+        *,
+        team_name: str,
+        report: WorkerCodingCallbackReport,
+    ) -> str | None:
+        if report.session_id:
+            return report.session_id
+
+        from clawteam.coding.store import CodingJobStore
+
+        job = CodingJobStore().get_job(team_name, report.job_id)
+        if job is not None and job.provider_session_ref:
+            return job.provider_session_ref
+
+        self.record_fault(
+            team_name=team_name,
+            fault_type="callback_session_link_missing",
+            severity=RuntimeFaultSeverity.warning,
+            scope_type=RuntimeFaultScopeType.callback,
+            scope_id=report.job_id,
+            message=(
+                f"Callback for job {report.job_id} has no sessionId and no providerSessionRef linkage."
+            ),
+            detail=(
+                f"jobFound={'yes' if job is not None else 'no'} "
+                f"taskId={report.task_id or '-'} worker={report.worker_name or '-'}"
+            ),
+            suggested_action=(
+                "Inspect the coding job record and runtime-console sync faults for missing provider-session linkage."
+            ),
+        )
+        return None
 
     def _provider_session_from_job(self, record: CodingJobRecord, *, state: ProviderSessionState) -> ProviderSessionRecord:
         agent_session = SessionStore(record.team_name).load(record.worker_name)

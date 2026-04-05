@@ -7,6 +7,7 @@ from pathlib import Path
 
 from clawteam.coding import ACTIVE_CODING_JOB_STATES, CodingJobStore
 from clawteam.runtime_console import RuntimeConsoleStore
+from clawteam.runtime_console.service import RuntimeConsoleService
 from clawteam.spawn.registry import is_agent_alive
 from clawteam.team.mailbox import MailboxManager
 from clawteam.team.manager import TeamManager
@@ -91,6 +92,52 @@ class BoardCollector:
             "artifacts": artifacts,
         }
 
+    def collect_coding_job_artifact_preview(
+        self,
+        team_name: str,
+        job_id: str,
+        artifact_name: str,
+        *,
+        max_chars: int = 12000,
+    ) -> dict:
+        record = self.collect_coding_job(team_name, job_id)
+        artifact_path = (record.get("artifactPaths") or {}).get(artifact_name)
+        if artifact_path is None:
+            raise ValueError(
+                f"Coding job '{job_id}' has no artifact named '{artifact_name}' for team '{team_name}'"
+            )
+        path = Path(artifact_path)
+        payload = {
+            "teamName": team_name,
+            "jobId": job_id,
+            "name": artifact_name,
+            "path": artifact_path,
+            "exists": path.exists(),
+            "isBinary": False,
+            "truncated": False,
+            "content": None,
+            "unavailableReason": "",
+            "sizeBytes": path.stat().st_size if path.exists() else None,
+        }
+        if not path.exists():
+            payload["unavailableReason"] = "missing_on_disk"
+            return payload
+        try:
+            content = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            payload["isBinary"] = True
+            payload["unavailableReason"] = "binary"
+            return payload
+        except OSError as exc:
+            payload["unavailableReason"] = f"unreadable: {exc}"
+            return payload
+        if len(content) > max_chars:
+            payload["content"] = content[:max_chars]
+            payload["truncated"] = True
+            return payload
+        payload["content"] = content
+        return payload
+
     def collect_provider_sessions(self, team_name: str) -> dict:
         sessions, faults = self._runtime_sessions_with_faults(team_name)
         sessions_payload = sorted(
@@ -131,16 +178,14 @@ class BoardCollector:
 
     def collect_provider_session_events(self, team_name: str, session_id: str) -> dict:
         self.collect_provider_session(team_name, session_id)
-        timeline, faults = self._runtime_timeline_with_faults(team_name)
-        events = [
-            self._dump_model(event)
-            for event in timeline
-            if event.scope_type.value == "provider_session" and event.scope_id == session_id
-        ]
+        events, faults = RuntimeConsoleService().inspect_session_timeline(
+            team_name=team_name,
+            session_id=session_id,
+        )
         return {
             "teamName": team_name,
             "sessionId": session_id,
-            "events": events,
+            "events": [self._dump_model(event) for event in events],
             "faults": faults,
         }
 

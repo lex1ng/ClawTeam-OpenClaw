@@ -28,6 +28,7 @@ from clawteam.coding.harness.base import HarnessArtifact, HarnessExecution
 from clawteam.coding.registry import CodingHarnessRegistry, build_default_registry
 from clawteam.coding.store import CodingJobStore
 from clawteam.runtime_console.service import RuntimeConsoleService
+from clawteam.runtime_console.models import RuntimeFaultScopeType, RuntimeFaultSeverity
 
 if TYPE_CHECKING:
     from clawteam.team.models import WorkerCodingCallbackReport
@@ -299,8 +300,22 @@ class CodingService:
         team_name: str,
         report: WorkerCodingCallbackReport,
     ) -> CodingJobRecord:
-        self.runtime_console.record_callback(team_name=team_name, report=report)
         record = self.store.get_job(team_name, report.job_id)
+        try:
+            self.runtime_console.record_callback(team_name=team_name, report=report)
+        except Exception as exc:
+            self._best_effort_record_runtime_console_fault(
+                action="record_callback",
+                record=record,
+                error=exc,
+                team_name=team_name,
+                job_id=report.job_id,
+                task_id=report.task_id,
+                worker_name=report.worker_name,
+                session_id=report.session_id,
+                scope_type=RuntimeFaultScopeType.callback,
+                scope_id=report.job_id,
+            )
         if record is None:
             raise CodingJobNotFoundError(
                 f"Coding job '{report.job_id}' not found for team '{team_name}'"
@@ -618,6 +633,58 @@ class CodingService:
     ) -> None:
         try:
             getattr(self.runtime_console, action)(record)
+        except Exception as exc:
+            self._best_effort_record_runtime_console_fault(
+                action=action,
+                record=record,
+                error=exc,
+                team_name=record.team_name,
+                job_id=record.job_id,
+                task_id=record.task_id,
+                worker_name=record.worker_name,
+                session_id=record.provider_session_ref,
+                scope_type=RuntimeFaultScopeType.coding_job,
+                scope_id=record.job_id,
+            )
+
+    def _best_effort_record_runtime_console_fault(
+        self,
+        *,
+        action: str,
+        error: Exception,
+        team_name: str,
+        scope_type: RuntimeFaultScopeType,
+        scope_id: str,
+        record: CodingJobRecord | None = None,
+        job_id: str | None = None,
+        task_id: str | None = None,
+        worker_name: str | None = None,
+        session_id: str | None = None,
+    ) -> None:
+        detail = (
+            f"action={action} "
+            f"jobId={job_id or (record.job_id if record else '-') } "
+            f"taskId={task_id or (record.task_id if record else '-') or '-'} "
+            f"worker={worker_name or (record.worker_name if record else '-') or '-'} "
+            f"sessionId={session_id or (record.provider_session_ref if record else '-') or '-'} "
+            f"error={error}"
+        )
+        try:
+            self.runtime_console.record_fault(
+                team_name=team_name,
+                fault_type="runtime_console_sync_failed",
+                severity=RuntimeFaultSeverity.error,
+                scope_type=scope_type,
+                scope_id=scope_id,
+                message=(
+                    f"Runtime Console sync failed during {action} "
+                    f"for {scope_type.value}:{scope_id}."
+                ),
+                detail=detail,
+                suggested_action=(
+                    "Inspect runtime-console faults and the related coding job for degraded console state."
+                ),
+            )
         except Exception:
             pass
 

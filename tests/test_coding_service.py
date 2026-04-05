@@ -18,6 +18,7 @@ from clawteam.coding.models import (
 from clawteam.coding.registry import CodingHarnessRegistry
 from clawteam.coding.service import CodingJobConflictError, CodingJobNotFoundError, CodingService
 from clawteam.coding.store import CodingJobStore
+from clawteam.runtime_console.service import RuntimeConsoleService
 from clawteam.runtime_console import RuntimeConsoleStore
 
 
@@ -350,6 +351,48 @@ class TestCodingService:
             "started",
             "completed",
         ]
+
+    def test_execute_emits_runtime_fault_when_runtime_console_terminal_sync_fails(self):
+        registry = CodingHarnessRegistry()
+
+        class FakeHarness:
+            provider = CodingProvider.claude
+
+            def exec(self, job_id, request, effective_cwd, startup_policy):
+                return HarnessExecution(
+                    result=CodingExecResult(
+                        jobId=job_id,
+                        provider=request.provider,
+                        effectiveCwd=effective_cwd,
+                        status="completed",
+                        summary="Executed through service",
+                    ),
+                    command=["claude"],
+                    artifactPayloads={},
+                )
+
+        class ExplodingRuntimeConsole(RuntimeConsoleService):
+            def mark_job_terminal(self, record):
+                raise RuntimeError("timeline append failed")
+
+        registry.register(CodingProvider.claude, FakeHarness())
+        service = CodingService(
+            registry=registry,
+            runtime_console=ExplodingRuntimeConsole(),
+        )
+
+        result = service.execute(_request(), job_id_factory=lambda: "job-fixed")
+
+        assert result.status == CodingJobState.completed
+        record = service.require_job("alpha", "job-fixed")
+        assert record.state == CodingJobState.completed
+        faults = RuntimeConsoleStore().inspect_faults("alpha")[0]
+        assert len(faults) == 1
+        assert faults[0].fault_type == "runtime_console_sync_failed"
+        assert faults[0].scope_type.value == "coding_job"
+        assert faults[0].scope_id == "job-fixed"
+        assert "mark_job_terminal" in faults[0].detail
+        assert "timeline append failed" in faults[0].detail
 
     def test_execute_distinguishes_service_failure_from_provider_failure(self):
         registry = CodingHarnessRegistry()

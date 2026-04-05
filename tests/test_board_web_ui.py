@@ -14,3 +14,6 @@ def test_runtime_console_web_board_static_shell_includes_operator_sections():
     assert "ephemeral" in html
     assert "unavailable" in html
     assert "source of truth" in html
+    assert "/runtime_console_helpers.js" in html
+    assert "artifactPreviewRoute" in html
+    assert "Loading stdout preview" in html

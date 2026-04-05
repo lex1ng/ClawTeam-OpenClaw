@@ -4,9 +4,10 @@ from unittest.mock import patch
 
 import pytest
 
+from clawteam.coding import CodingExecRequest, CodingExecResult, CodingService
+from clawteam.runtime_console import RuntimeConsoleStore
 from clawteam.team.models import TaskItem, TaskStatus, WorkerCodingCallbackReport, WorkerCodingDecision
 from clawteam.team.tasks import TaskLockError, TaskStore
-from clawteam.runtime_console import RuntimeConsoleStore
 
 
 @pytest.fixture
@@ -337,3 +338,91 @@ class TestCodingCallbackMetadata:
         callback = RuntimeConsoleStore().load_callback_report(store.team_name, "job-1")
         assert callback is not None
         assert callback.session_id == "psess-job-1"
+
+    def test_record_coding_callback_falls_back_to_job_provider_session_ref(self, store):
+        task = store.create("coding task")
+        service = CodingService()
+        service.create_job(
+            CodingExecRequest(
+                teamName=store.team_name,
+                workerName="worker-1",
+                workerId="worker-id-1",
+                leaderName="leader",
+                taskId=task.id,
+                provider="claude",
+                prompt="Implement callback fallback",
+                workerWorkspaceCwd="/tmp/worktree",
+                workerRuntimeCwd="/tmp/runtime",
+            ),
+            job_id_factory=lambda: "job-fallback",
+        )
+        service.mark_running(store.team_name, "job-fallback")
+        service.complete_job(
+            store.team_name,
+            "job-fallback",
+            CodingExecResult(
+                jobId="job-fallback",
+                provider="claude",
+                effectiveCwd="/tmp/worktree",
+                status="completed",
+                summary="done",
+            ),
+        )
+
+        report = WorkerCodingCallbackReport(
+            taskId=task.id,
+            jobId="job-fallback",
+            provider="claude",
+            status="completed",
+            decision=WorkerCodingDecision.report_progress,
+            summary="Implemented feature",
+        )
+
+        updated = store.record_coding_callback(task.id, report)
+
+        assert updated is not None
+        callback = RuntimeConsoleStore().load_callback_report(store.team_name, "job-fallback")
+        assert callback is not None
+        assert callback.session_id == "psess-job-fallback"
+        session = RuntimeConsoleStore().get_provider_session(store.team_name, "psess-job-fallback")
+        assert session is not None
+        assert session.state.value == "ended"
+        assert session.callback_status.value == "reported"
+
+    def test_record_coding_callback_emits_fault_when_session_linkage_missing(self, store):
+        task = store.create("coding task")
+        service = CodingService()
+        record = service.create_job(
+            CodingExecRequest(
+                teamName=store.team_name,
+                workerName="worker-1",
+                workerId="worker-id-1",
+                leaderName="leader",
+                taskId=task.id,
+                provider="claude",
+                prompt="Implement callback fallback",
+                workerWorkspaceCwd="/tmp/worktree",
+                workerRuntimeCwd="/tmp/runtime",
+            ),
+            job_id_factory=lambda: "job-missing-link",
+        )
+        broken = record.model_copy(update={"provider_session_ref": None})
+        service.store.save_job(broken)
+
+        report = WorkerCodingCallbackReport(
+            taskId=task.id,
+            jobId="job-missing-link",
+            provider="claude",
+            status="completed",
+            decision=WorkerCodingDecision.report_progress,
+            summary="Implemented feature",
+        )
+
+        updated = store.record_coding_callback(task.id, report)
+
+        assert updated is not None
+        explicit_faults, _ = RuntimeConsoleStore().inspect_faults(store.team_name)
+        assert len(explicit_faults) == 1
+        assert explicit_faults[0].fault_type == "callback_session_link_missing"
+        assert explicit_faults[0].scope_type.value == "callback"
+        assert explicit_faults[0].scope_id == "job-missing-link"

@@ -212,3 +212,56 @@ def test_runtime_console_session_show_human_output_marks_ephemeral_unavailable(m
     assert "Provider Session ID: unavailable" in result.stdout
     assert "Session Mode: ephemeral" in result.stdout
     assert "Resume Supported: no" in result.stdout
+
+
+def test_runtime_console_cli_list_commands_degrade_with_read_faults(monkeypatch, tmp_path):
+    _, completed = _seed_runtime_console(tmp_path, monkeypatch)
+    runner = CliRunner()
+    env = {"CLAWTEAM_DATA_DIR": str(tmp_path)}
+    store = RuntimeConsoleStore()
+
+    store.provider_session_path("demo", "psess-bad").write_text("{bad-json", encoding="utf-8")
+    store.fault_path("demo", "fault-bad").write_text("{bad-json", encoding="utf-8")
+    timeline_root = store.storage_roots("demo")["timelineRoot"]
+    from pathlib import Path
+    Path(timeline_root, "broken-event.json").write_text("{bad-json", encoding="utf-8")
+
+    result = runner.invoke(app, ["--json", "coding", "session", "list", "--team", "demo"], env=env)
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["sessions"][0]["sessionId"] == completed.provider_session_ref
+    assert len(payload["readFaults"]) == 1
+    assert payload["readFaults"][0]["recordKind"] == "provider_session"
+
+    result = runner.invoke(app, ["--json", "faults", "list", "--team", "demo"], env=env)
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert any(fault.get("faultId") == "fault-runtime-1" for fault in payload["faults"])
+    assert len(payload["readFaults"]) == 1
+    assert payload["readFaults"][0]["recordKind"] == "fault"
+
+    result = runner.invoke(app, ["--json", "audit", "timeline", "--team", "demo"], env=env)
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert any(event["eventType"] == "callback_reported" for event in payload["events"])
+    assert len(payload["readFaults"]) == 1
+    assert payload["readFaults"][0]["recordKind"] == "timeline"
+
+
+def test_runtime_console_session_events_include_callback_linked_events(monkeypatch, tmp_path):
+    _, completed = _seed_runtime_console(tmp_path, monkeypatch)
+    runner = CliRunner()
+    env = {"CLAWTEAM_DATA_DIR": str(tmp_path)}
+
+    result = runner.invoke(
+        app,
+        ["--json", "coding", "session", "events", completed.provider_session_ref, "--team", "demo"],
+        env=env,
+    )
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    event_types = [event["eventType"] for event in payload["events"]]
+    assert "provider_session_attached" in event_types
+    assert "callback_reported" in event_types
+    assert len(payload["events"]) == len({event["eventId"] for event in payload["events"]})
