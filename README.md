@@ -329,6 +329,57 @@ cd ClawTeam-OpenClaw
 bash scripts/install-openclaw.sh
 ```
 
+### Upgrade and rollback
+
+If you are already running a local installation from this repository and want to move to a newer tested branch/commit, use the controlled upgrade procedure rather than editing code in place without a backup.
+
+Quick version:
+
+```bash
+# 1. Back up durable state
+tar -czf ~/clawteam-backup-$(date +%Y%m%d-%H%M%S).tar.gz ~/.clawteam
+
+# 2. Update the repo
+cd /root/github.com/ClawTeam-OpenClaw
+git fetch --all
+git checkout <target-branch-or-commit>
+git pull
+
+# 3. Re-run installation
+pip install -e .
+
+# 4. Smoke check
+clawteam --version
+clawteam config health
+clawteam board show <team>
+clawteam coding list --team <team>
+clawteam faults list --team <team>
+```
+
+If you use OpenClaw and the skill changed, re-copy it:
+
+```bash
+mkdir -p ~/.openclaw/workspace/skills/clawteam
+cp /root/github.com/ClawTeam-OpenClaw/skills/openclaw/SKILL.md ~/.openclaw/workspace/skills/clawteam/SKILL.md
+```
+
+If you need to roll back:
+
+```bash
+cd /root/github.com/ClawTeam-OpenClaw
+git checkout <previous-known-good-commit>
+pip install -e .
+```
+
+If you also need to restore durable state:
+
+```bash
+rm -rf ~/.clawteam
+tar -xzf ~/clawteam-backup-YYYYMMDD-HHMMSS.tar.gz -C ~
+```
+
+See [docs/upgrade-and-rollback-guide.md](docs/upgrade-and-rollback-guide.md) for the full controlled upgrade and rollback procedure.
+
 ### Troubleshooting
 
 | Problem | Cause | Fix |
