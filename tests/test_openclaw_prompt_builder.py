@@ -1,7 +1,7 @@
 from clawteam.spawn.prompt import build_agent_prompt
 
 
-def test_openclaw_prompt_mentions_allowlisted_absolute_clawteam_path():
+def test_openclaw_prompt_uses_plain_clawteam_cli_protocol():
     prompt = build_agent_prompt(
         agent_name="worker1",
         agent_id="agent-1",
@@ -10,9 +10,11 @@ def test_openclaw_prompt_mentions_allowlisted_absolute_clawteam_path():
         leader_name="leader",
         task="do work",
     )
-    assert "$CLAWTEAM_BIN" in prompt
+    assert "$CLAWTEAM_BIN" not in prompt
     assert "$CLAWTEAM_CMD" not in prompt
     assert "allowlist" in prompt.lower()
+    assert "Use the standard `clawteam ...` CLI commands below" in prompt
+    assert "First action: run `clawteam task list demo-team --owner worker1`" in prompt
 
 
 def test_openclaw_prompt_documents_coding_callback_loop():

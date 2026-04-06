@@ -54,7 +54,7 @@ def build_agent_prompt(
         task,
         "",
         "## Coordination Protocol\n",
-        f"- IMPORTANT: spawned OpenClaw workers run under exec allowlist mode. Use only the allowlisted executable path from $CLAWTEAM_BIN, not arbitrary shell commands.",
+        "- IMPORTANT: spawned OpenClaw workers may run under exec allowlist mode. Use the standard `clawteam ...` CLI commands below; do not invent alternate wrappers or ad hoc shell protocols.",
         f"- First action: run `clawteam task list {team_name} --owner {agent_name}` to discover your task ID.",
         f"- Starting a task: `clawteam task update {team_name} <task-id> --status in_progress`",
         f"- If you need coding help, run `clawteam coding exec <claude|codex> \"<prompt>\" --team {team_name}` from this workspace so the provider executes inside your assigned worktree.",
