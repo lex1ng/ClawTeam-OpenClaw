@@ -2648,6 +2648,7 @@ def spawn_agent(
 
     if workspace:
         from clawteam.workspace import get_workspace_manager, inspect_workspace
+        from clawteam.workspace.git import GitError
 
         diagnostic = inspect_workspace(repo, workspace_mode=ws_mode, base_ref=workspace_base_ref)
         workspace_payload = diagnostic.to_payload()
@@ -2667,7 +2668,23 @@ def spawn_agent(
                     lambda d: _print_workspace_diagnostic(d["workspace"]),
                 )
                 raise typer.Exit(1)
-            ws_info = ws_mgr.create_workspace(team_name=_team, agent_name=_name, agent_id=_id)
+            try:
+                ws_info = ws_mgr.create_workspace(team_name=_team, agent_name=_name, agent_id=_id)
+            except GitError as exc:
+                workspace_payload.update(
+                    {
+                        "status": "failed",
+                        "reason": "workspace_create_failed",
+                        "detail": "Workspace preflight succeeded, but worktree creation failed.",
+                        "gitError": str(exc),
+                        "recommendedSpawnMode": "no-workspace",
+                    }
+                )
+                _output(
+                    {"error": "workspace_create_failed", "workspace": workspace_payload},
+                    lambda d: _print_workspace_diagnostic(d["workspace"]),
+                )
+                raise typer.Exit(1)
             cwd = _workspace_cwd_from_info(repo, ws_info)
             ws_branch = ws_info.branch_name
             workspace_payload.update(

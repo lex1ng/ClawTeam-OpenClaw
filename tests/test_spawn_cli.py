@@ -8,6 +8,7 @@ from typer.testing import CliRunner
 
 from clawteam.cli.commands import app
 from clawteam.team.manager import TeamManager
+from clawteam.workspace.git import GitError
 
 
 class ErrorBackend:
@@ -31,6 +32,11 @@ class RecordingBackend:
 
     def list_running(self):
         return []
+
+
+class FailingWorkspaceManager:
+    def create_workspace(self, team_name: str, agent_name: str, agent_id: str):
+        raise GitError("git worktree add: branch already exists")
 
 
 def _init_git_repo(path: Path, *, commit: bool) -> str:
@@ -173,3 +179,46 @@ def test_spawn_cli_workspace_base_ref_allows_override(monkeypatch, tmp_path):
     assert payload["workspace"]["status"] == "created"
     assert payload["workspace"]["resolvedBaseRef"] == branch
     assert payload["workspace"]["headValid"] is True
+
+
+def test_spawn_cli_workspace_creation_failure_is_structured(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAWTEAM_DATA_DIR", str(tmp_path / "data"))
+    TeamManager.create_team(name="demo", leader_name="leader", leader_id="leader001")
+    backend = RecordingBackend()
+    repo = tmp_path / "repo"
+    branch = _init_git_repo(repo, commit=True)
+
+    monkeypatch.setattr("clawteam.spawn.get_backend", lambda _: backend)
+    monkeypatch.setattr("clawteam.workspace.get_workspace_manager", lambda repo=None, base_ref=None: FailingWorkspaceManager())
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "--json",
+            "spawn",
+            "tmux",
+            "openclaw",
+            "--team",
+            "demo",
+            "--agent-name",
+            "alice",
+            "--workspace",
+            "--workspace-base-ref",
+            branch,
+            "--repo",
+            str(repo),
+            "--task",
+            "do work",
+        ],
+        env={"CLAWTEAM_DATA_DIR": str(tmp_path / "data")},
+    )
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["error"] == "workspace_create_failed"
+    assert payload["workspace"]["status"] == "failed"
+    assert payload["workspace"]["reason"] == "workspace_create_failed"
+    assert "branch already exists" in payload["workspace"]["gitError"]
+    assert backend.calls == []
+    assert [member.name for member in TeamManager.list_members("demo")] == ["leader"]
