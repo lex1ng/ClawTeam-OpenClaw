@@ -1480,6 +1480,18 @@ def _coding_events_human(data: dict):
     console.print(table)
 
 
+def _coding_callback_report_human(data: dict):
+    console.print(
+        f"Callback recorded for job [cyan]{data['jobId']}[/cyan] "
+        f"task={data.get('taskId') or '-'} decision={data['decision']}"
+    )
+    console.print(f"Summary: {data['summary']}")
+    if data.get("nextStep"):
+        console.print(f"Next Step: {data['nextStep']}")
+    if data.get("escalationReason"):
+        console.print(f"Escalation: {data['escalationReason']}")
+
+
 def _coding_artifacts_human(data: dict):
     table = Table(title=f"Coding Artifacts ({data['jobId']})")
     table.add_column("Name", style="cyan")
@@ -1902,6 +1914,96 @@ def coding_wait(
             _output(_dump(record), _coding_record_human)
             raise typer.Exit(1)
         time.sleep(poll_interval)
+
+
+@coding_app.command("callback-report")
+def coding_callback_report(
+    job_id: str = typer.Argument(..., help="Coding job id"),
+    team: Optional[str] = typer.Option(None, "--team", help="Team name (defaults from env)"),
+    task_id: Optional[str] = typer.Option(None, "--task-id", help="Override task id when the job record has none"),
+    decision: str = typer.Option(..., "--decision", help="Worker decision: continue, report_progress, escalate, complete, blocked"),
+    summary: Optional[str] = typer.Option(None, "--summary", help="Callback summary (defaults to normalized result or job summary)"),
+    next_step: str = typer.Option("", "--next-step", help="Optional next-step summary"),
+    escalation_reason: Optional[str] = typer.Option(None, "--escalation-reason", help="Required when decision is escalate"),
+):
+    """Persist a worker callback report via the durable coding/runtime-console path."""
+    from clawteam.coding import CodingService, TERMINAL_CODING_JOB_STATES
+    from clawteam.team.models import WorkerCodingCallbackReport, WorkerCodingDecision
+    from clawteam.team.tasks import TaskStore
+
+    team_name = _resolve_coding_team(team)
+    service = CodingService()
+    try:
+        record = service.require_job(team_name, job_id)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+
+    if record.state not in TERMINAL_CODING_JOB_STATES:
+        _print_error(
+            f"Coding job '{job_id}' is not terminal yet (state={record.state.value}); callback cannot be recorded."
+        )
+        raise typer.Exit(1)
+
+    resolved_task_id = task_id or record.task_id
+    if not resolved_task_id:
+        _print_error(
+            f"Coding job '{job_id}' has no task linkage; pass --task-id to record a callback."
+        )
+        raise typer.Exit(1)
+
+    try:
+        decision_value = WorkerCodingDecision(decision)
+    except ValueError:
+        _print_error(
+            "Decision must be one of: continue, report_progress, escalate, complete, blocked."
+        )
+        raise typer.Exit(1)
+
+    if decision_value == WorkerCodingDecision.escalate and not escalation_reason:
+        _print_error("Escalation callbacks require --escalation-reason.")
+        raise typer.Exit(1)
+
+    result = service.store.load_result(team_name, job_id)
+    resolved_summary = summary or (result.summary if result else "") or record.summary or f"Callback reported for {job_id}"
+    report = WorkerCodingCallbackReport.from_coding_result(
+        task_id=resolved_task_id,
+        job_id=job_id,
+        session_id=record.provider_session_ref,
+        provider_session_id=record.provider_session_id,
+        worker_name=record.worker_name,
+        provider=record.provider.value,
+        status=record.state.value,
+        decision=decision_value,
+        summary=resolved_summary,
+        artifact_paths=record.artifact_paths,
+        next_step=next_step,
+        escalation_reason=escalation_reason,
+    )
+    try:
+        updated_task = TaskStore(team_name).record_coding_callback(resolved_task_id, report)
+    except ValueError as exc:
+        _print_error(str(exc))
+        raise typer.Exit(1)
+
+    if updated_task is None:
+        _print_error(f"Task '{resolved_task_id}' not found for team '{team_name}'.")
+        raise typer.Exit(1)
+
+    _output(
+        {
+            "teamName": team_name,
+            "taskId": resolved_task_id,
+            "jobId": job_id,
+            "decision": report.decision.value,
+            "summary": report.summary,
+            "nextStep": report.next_step,
+            "escalationReason": report.escalation_reason,
+            "callback": _dump(report),
+            "task": _dump(updated_task),
+        },
+        _coding_callback_report_human,
+    )
 
 
 @coding_app.command("cancel")

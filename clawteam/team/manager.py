@@ -188,8 +188,22 @@ class TeamManager:
         costs_dir = get_data_dir() / "costs" / team_name
         sessions_dir = get_data_dir() / "sessions" / team_name
         plans_dir = team_plans_path(team_name)
+        data_dir = get_data_dir()
+        coding_dirs = (
+            data_dir / "coding" / "jobs" / team_name,
+            data_dir / "coding" / "results" / team_name,
+            data_dir / "coding" / "events" / team_name,
+            data_dir / "coding" / "artifacts" / team_name,
+        )
+        runtime_console_dirs = (
+            data_dir / "runtime-console" / "provider-sessions" / team_name,
+            data_dir / "runtime-console" / "callbacks" / team_name,
+            data_dir / "runtime-console" / "faults" / team_name,
+            data_dir / "runtime-console" / "timeline" / team_name,
+        )
+        workspaces_dir = data_dir / "workspaces" / team_name
         cleaned = False
-        for d in (team_dir, tasks_dir, costs_dir, sessions_dir, plans_dir):
+        for d in (team_dir, tasks_dir, costs_dir, sessions_dir, plans_dir, workspaces_dir, *coding_dirs, *runtime_console_dirs):
             if d.exists():
                 shutil.rmtree(d)
                 cleaned = True

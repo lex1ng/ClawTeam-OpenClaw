@@ -172,5 +172,29 @@ class TestCleanup:
         assert not (data / "teams" / team_name).exists()
         assert not (data / "tasks" / team_name).exists()
 
+    def test_cleanup_removes_coding_runtime_console_and_workspace_dirs(self, team_name):
+        TeamManager.create_team(name=team_name, leader_name="l", leader_id="x")
+        data = get_data_dir()
+        dirs = [
+            data / "coding" / "jobs" / team_name,
+            data / "coding" / "results" / team_name,
+            data / "coding" / "events" / team_name,
+            data / "coding" / "artifacts" / team_name,
+            data / "runtime-console" / "provider-sessions" / team_name,
+            data / "runtime-console" / "callbacks" / team_name,
+            data / "runtime-console" / "faults" / team_name,
+            data / "runtime-console" / "timeline" / team_name,
+            data / "workspaces" / team_name,
+        ]
+        for directory in dirs:
+            directory.mkdir(parents=True, exist_ok=True)
+            (directory / "sentinel.txt").write_text("x", encoding="utf-8")
+
+        result = TeamManager.cleanup(team_name)
+
+        assert result is True
+        for directory in dirs:
+            assert not directory.exists()
+
     def test_cleanup_nonexistent_team(self):
         assert TeamManager.cleanup("never-existed") is False

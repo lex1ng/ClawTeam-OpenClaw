@@ -1,0 +1,39 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import os
+import sys
+
+
+def main(argv: list[str]) -> int:
+    prompt = ""
+    for index, value in enumerate(argv):
+        if value == "-p" and index + 1 < len(argv):
+            prompt = argv[index + 1]
+            break
+
+    payload = {
+        "summary": "smoke ok",
+        "responseText": (
+            "Fake Claude completed the smoke task. "
+            f"job={os.environ.get('CLAWTEAM_CODING_JOB_ID', '')} "
+            f"cwd={os.environ.get('CLAWTEAM_WORKSPACE_DIR', '')} "
+            f"prompt={prompt[:80]}"
+        ),
+        "nextSuggestion": "report back to the leader",
+        "signals": {
+            "needsReview": False,
+            "needsDecision": False,
+            "blocked": False,
+        },
+    }
+    print("fake claude smoke provider")
+    print("CLAWTEAM_RESULT_JSON_START")
+    print(json.dumps(payload, ensure_ascii=False))
+    print("CLAWTEAM_RESULT_JSON_END")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

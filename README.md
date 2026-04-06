@@ -791,6 +791,28 @@ We welcome contributions:
 - **Dashboard improvements** — Web UI, Grafana
 - **Documentation** — tutorials and best practices
 
+### Smoke Suites
+
+Use the two smoke layers together when validating this fork locally:
+
+```bash
+python -m pytest tests/test_smoke_clawteam_full_chain.py -q
+python -m pytest tests/test_smoke_openclaw_integration.py -q
+```
+
+- `test_smoke_clawteam_full_chain.py` validates the standalone durable path without requiring OpenClaw orchestration.
+- `test_smoke_openclaw_integration.py` validates the default OpenClaw `tmux -> openclaw tui --deliver` worker path with fake OpenClaw and fake Claude, and proves durable progress plus callback persistence on that path.
+
+Optional live-provider smoke stays opt-in and is skipped unless explicitly enabled:
+
+```bash
+CLAWTEAM_ENABLE_LIVE_SMOKE=1 CLAWTEAM_LIVE_PROVIDER=claude \
+python -m pytest tests/test_live_provider_integration.py -q
+```
+
+- this exercises `fake openclaw + real claude/codex`
+- external dependency failures such as missing install, missing auth, or network/provider outage are reported as explicit skips rather than fake success
+
 ---
 
 ## Acknowledgements

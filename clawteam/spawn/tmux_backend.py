@@ -49,6 +49,11 @@ class TmuxBackend(SpawnBackend):
             "CLAWTEAM_AGENT_LEADER": "0",
             "CLAWTEAM_MEMORY_SCOPE": f"custom:team-{team_name}",
         }
+        # Preserve the leader/runtime durable-state root and local import context.
+        for key in ("HOME", "CLAWTEAM_DATA_DIR", "PYTHONPATH", "VIRTUAL_ENV"):
+            value = os.environ.get(key)
+            if value:
+                env_vars[key] = value
         # Propagate user if set
         user = os.environ.get("CLAWTEAM_USER", "")
         if user:

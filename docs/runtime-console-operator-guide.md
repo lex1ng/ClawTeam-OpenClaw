@@ -121,6 +121,14 @@ The `--deliver` flag matters. Without it, an OpenClaw TUI can appear alive while
 - coding job success
 - provider callback success
 
+Operationally, spawned tmux workers inherit the launcher's durable-state context:
+
+- `HOME`
+- `CLAWTEAM_DATA_DIR`
+- `PYTHONPATH`
+
+That keeps leader CLI, worker CLI, coding runtime, callback records, and board/API inspection pointed at the same durable runtime root during local installs and isolated smoke runs.
+
 Workspace modes:
 
 - `auto`: preflight the repo, create a worktree only when the repo is git-healthy and worktree-capable, otherwise continue without workspace and emit diagnostics
@@ -132,6 +140,11 @@ Operational guidance:
 - use `clawteam workspace doctor --repo <path>` before relying on a repo for worktree isolation
 - use `--no-workspace` when OpenClaw dropped you into a scratch workspace that is not the real project checkout
 - use `--workspace-base-ref <ref>` when the current branch is not the correct worktree base
+
+Smoke validation entry points:
+
+- `python -m pytest tests/test_smoke_clawteam_full_chain.py -q`
+- `python -m pytest tests/test_smoke_openclaw_integration.py -q`
 
 ## Durable Storage Layout
 

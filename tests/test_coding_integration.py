@@ -284,3 +284,67 @@ def test_coding_status_human_output_includes_runtime_audit_fields(monkeypatch, t
     assert "--dangerously-skip-permissions: enabled" in result.stdout
     assert 'Applied Flags: ["--dangerously-skip-permissions"]' in result.stdout
     assert 'Extra Args: ["--model", "sonnet"]' in result.stdout
+
+
+def test_coding_callback_report_cli_persists_runtime_console_callback(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAWTEAM_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("CLAWTEAM_TEAM_NAME", "demo")
+    monkeypatch.setenv("CLAWTEAM_AGENT_NAME", "worker1")
+    monkeypatch.setenv("CLAWTEAM_AGENT_ID", "worker-001")
+    monkeypatch.setenv("CLAWTEAM_WORKSPACE_DIR", "/tmp/worktree")
+    TeamManager.create_team(name="demo", leader_name="leader", leader_id="leader-001")
+
+    task_store = TaskStore("demo")
+    task = task_store.create("Implement callback runtime", owner="worker1")
+
+    class Result:
+        returncode = 0
+        stdout = _structured_output("Implemented callback runtime", "Patch complete")
+        stderr = ""
+
+    monkeypatch.setattr("clawteam.coding.harness.base.shutil.which", lambda _: "/usr/bin/claude")
+    monkeypatch.setattr("clawteam.coding.harness.base.subprocess.run", lambda *a, **k: Result())
+
+    runner = CliRunner()
+    exec_result = runner.invoke(
+        app,
+        ["--json", "coding", "exec", "claude", "Implement callback runtime", "--team", "demo", "--task-id", task.id],
+        env={"CLAWTEAM_DATA_DIR": str(tmp_path)},
+    )
+    assert exec_result.exit_code == 0
+    exec_payload = json.loads(exec_result.stdout)
+
+    callback_result = runner.invoke(
+        app,
+        [
+            "--json",
+            "coding",
+            "callback-report",
+            exec_payload["jobId"],
+            "--team",
+            "demo",
+            "--decision",
+            "report_progress",
+            "--summary",
+            "Implemented callback runtime",
+            "--next-step",
+            "notify leader",
+        ],
+        env={"CLAWTEAM_DATA_DIR": str(tmp_path)},
+    )
+    assert callback_result.exit_code == 0
+    callback_payload = json.loads(callback_result.stdout)
+    assert callback_payload["jobId"] == exec_payload["jobId"]
+    assert callback_payload["taskId"] == task.id
+    assert callback_payload["decision"] == "report_progress"
+
+    board_payload = runner.invoke(
+        app,
+        ["--json", "board", "show", "demo"],
+        env={"CLAWTEAM_DATA_DIR": str(tmp_path)},
+    )
+    assert board_payload.exit_code == 0
+    board_data = json.loads(board_payload.stdout)
+    assert board_data["runtimeConsole"]["callbacks"][0]["jobId"] == exec_payload["jobId"]
+    assert board_data["runtimeConsole"]["callbacks"][0]["decision"] == "report_progress"
+    assert board_data["runtimeConsole"]["callbacks"][0]["summary"] == "Implemented callback runtime"
