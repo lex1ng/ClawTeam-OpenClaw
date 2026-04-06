@@ -1,7 +1,7 @@
 ---
 name: clawteam-openclaw
 description: "Multi-agent swarm coordination for the ClawTeam-OpenClaw fork. Use when the user wants to create or reuse a persistent team, spawn multiple workers, assign tasks with dependencies, send inbox messages, inspect coding runtime state, inspect provider sessions/callbacks/faults/timeline, monitor progress through board surfaces, or launch a team template. This fork defaults to OpenClaw for swarm spawning and supports Claude Code and Codex as coding-runtime providers. Trigger phrases: clawteam, openclaw team, team, swarm, multi-agent, spawn agents, callback, coding runtime, runtime console, provider session, board, timeline, fault."
-version: 0.3.0
+version: 0.3.1+openclaw.1
 ---
 
 # ClawTeam OpenClaw Skill
@@ -14,6 +14,7 @@ In this fork:
 
 - OpenClaw is the default swarm/backend path for spawned team members
 - spawned workers normally run in tmux with git worktree isolation
+- the default tmux worker launch path uses `openclaw tui --deliver`
 - Claude Code and Codex are supported as coding-runtime providers through `clawteam coding exec`
 - provider configuration remains external to ClawTeam
 - runtime state is persisted under `~/.clawteam/`
@@ -87,8 +88,22 @@ Effective defaults are:
 
 - backend: `tmux`
 - command/backend path: `openclaw`
-- isolation: git worktree when available
+- OpenClaw execution mode: `openclaw tui --deliver`
+- isolation: git worktree when the repo passes workspace preflight
 - cwd: worker workspace/worktree
+
+Workspace rules:
+
+- `workspace=auto`: create a worktree only when the repo is git-healthy and worktree-capable; otherwise continue without workspace and surface diagnostics
+- `workspace=always`: fail loudly on the same preflight failures
+- `--no-workspace`: skip worktree creation and run directly in the requested repo/cwd
+
+Operational advice:
+
+- OpenClaw scratch workspaces are not automatically trustworthy project repos
+- use `clawteam workspace doctor --repo <path>` before relying on worktree isolation
+- use `--repo <real-project-repo>` and often `--no-workspace` when the current cwd is just an OpenClaw scratch area
+- use `--workspace-base-ref <ref>` when you need a base ref other than the current branch
 
 Avoid overriding ordinary worker spawning to `claude` unless there is a deliberate reason to bypass the OpenClaw swarm path.
 
@@ -154,7 +169,7 @@ clawteam board show <team>
 clawteam --json board show <team>
 clawteam board live <team>
 clawteam board attach <team>
-clawteam board serve --port 8080
+clawteam board serve --host 0.0.0.0 --port 8080
 ```
 
 ### Coding Runtime and Runtime Console
@@ -251,5 +266,13 @@ Prefer these references when you need exact operator semantics:
 - `README.md`
 - `docs/runtime-console-operator-guide.md`
 - `docs/upgrade-and-rollback-guide.md`
+
+Version identity for this fork:
+
+```bash
+clawteam --version
+# clawteam v0.3.1+openclaw.1
+# fork: ClawTeam-OpenClaw
+```
 
 If those sources disagree with the Web board, trust the durable model and CLI.

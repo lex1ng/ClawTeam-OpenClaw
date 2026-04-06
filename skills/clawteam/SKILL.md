@@ -9,7 +9,7 @@ description: >
   Codex as coding-runtime providers. Trigger phrases include clawteam, team,
   swarm, openclaw team, spawn worker, callback, coding runtime, runtime console,
   board, provider session, fault, and timeline.
-version: 0.3.0
+version: 0.3.1+openclaw.1
 ---
 
 # ClawTeam Multi-Agent Coordination
@@ -22,6 +22,7 @@ In this fork:
 
 - OpenClaw is the default worker/swarm backend
 - workers normally run in tmux with git worktree isolation
+- the default OpenClaw tmux launch path uses `openclaw tui --deliver`
 - Claude Code and Codex are supported through `clawteam coding exec`
 - provider configuration remains external
 - runtime truth is persisted under `~/.clawteam/`
@@ -103,7 +104,7 @@ clawteam spawn --team my-team --agent-name frontend --task "Build frontend"
 clawteam board show my-team
 clawteam --json board show my-team
 clawteam board attach my-team
-clawteam board serve --port 8080
+clawteam board serve --host 0.0.0.0 --port 8080
 ```
 
 ## Spawn Semantics
@@ -112,8 +113,22 @@ Default expectations in this fork:
 
 - backend: `tmux`
 - worker path: `openclaw`
-- workspace: git worktree when available
+- worker execution mode: `openclaw tui --deliver`
+- workspace: git worktree when the repo passes workspace preflight
 - execution cwd: worker workspace/worktree
+
+Workspace semantics:
+
+- `auto`: preflight the repo; if healthy and worktree-capable, create a worktree, otherwise continue without workspace and emit diagnostics
+- `always`: fail on the same preflight failures
+- `--no-workspace`: skip worktree creation and run directly in the requested repo/cwd
+
+Operational guidance:
+
+- do not assume an OpenClaw scratch workspace is a safe repo for branching
+- use `clawteam workspace doctor --repo <path>` when repo health is unclear
+- use `--repo <real-project-repo>` and often `--no-workspace` when you are not in the real checkout
+- use `--workspace-base-ref <ref>` when the worktree base must be pinned explicitly
 
 When Claude-based spawn/runtime paths are used, `--dangerously-skip-permissions` is enabled by default where configured so worker automation does not stall on approval prompts.
 
@@ -211,3 +226,11 @@ Use these repo documents for authoritative operator semantics:
 - `README.md`
 - `docs/runtime-console-operator-guide.md`
 - `docs/upgrade-and-rollback-guide.md`
+
+Version identity:
+
+```bash
+clawteam --version
+# clawteam v0.3.1+openclaw.1
+# fork: ClawTeam-OpenClaw
+```

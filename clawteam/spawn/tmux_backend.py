@@ -85,15 +85,19 @@ class TmuxBackend(SpawnBackend):
         if _is_openclaw_command(normalized_command):
             session_key = f"clawteam-{team_name}-{agent_name}"
             if final_command[0].endswith("openclaw") and len(final_command) == 1:
-                final_command = [final_command[0], "tui", "--session", session_key]
+                final_command = [final_command[0], "tui", "--deliver", "--session", session_key]
                 if prompt:
                     final_command.extend(["--message", prompt])
             elif "tui" in final_command:
-                final_command.extend(["--session", session_key])
-                if prompt:
+                if "--deliver" not in final_command:
+                    tui_index = final_command.index("tui")
+                    final_command.insert(tui_index + 1, "--deliver")
+                if "--session" not in final_command:
+                    final_command.extend(["--session", session_key])
+                if prompt and "--message" not in final_command:
                     final_command.extend(["--message", prompt])
             elif "agent" in final_command:
-                if prompt:
+                if prompt and "--message" not in final_command:
                     final_command.extend(["--message", prompt])
 
         if _is_nanobot_command(normalized_command):

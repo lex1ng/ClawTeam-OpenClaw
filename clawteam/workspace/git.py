@@ -23,6 +23,16 @@ def _run(args: list[str], cwd: Path | None = None, check: bool = True) -> str:
     return result.stdout.strip()
 
 
+def _run_result(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
+    """Run a git command and return the completed process without raising."""
+    return subprocess.run(
+        ["git"] + args,
+        cwd=cwd,
+        capture_output=True,
+        text=True,
+    )
+
+
 def is_git_repo(path: Path) -> bool:
     """Check if *path* is inside a git repository."""
     try:
@@ -37,12 +47,46 @@ def repo_root(path: Path) -> Path:
     return Path(_run(["rev-parse", "--show-toplevel"], cwd=path))
 
 
+def symbolic_head(repo: Path) -> str:
+    """Return the symbolic HEAD branch name when available, else empty string."""
+    result = _run_result(["symbolic-ref", "--quiet", "--short", "HEAD"], cwd=repo)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
 def current_branch(repo: Path) -> str:
     """Return the current branch name (or HEAD for detached)."""
     try:
         return _run(["symbolic-ref", "--short", "HEAD"], cwd=repo)
     except GitError:
         return _run(["rev-parse", "--short", "HEAD"], cwd=repo)
+
+
+def head_is_valid(repo: Path) -> bool:
+    """Return True when HEAD resolves to a commit."""
+    result = _run_result(["rev-parse", "--verify", "HEAD^{commit}"], cwd=repo)
+    return result.returncode == 0
+
+
+def ref_exists(repo: Path, ref: str) -> bool:
+    """Return True when *ref* resolves to a commit."""
+    if not ref:
+        return False
+    result = _run_result(["rev-parse", "--verify", f"{ref}^{{commit}}"], cwd=repo)
+    return result.returncode == 0
+
+
+def is_bare_repo(repo: Path) -> bool:
+    """Return True when the repository is bare."""
+    result = _run_result(["rev-parse", "--is-bare-repository"], cwd=repo)
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def worktree_support_error(repo: Path) -> str:
+    """Return an error string when worktree listing fails, else empty string."""
+    result = _run_result(["worktree", "list", "--porcelain"], cwd=repo)
+    if result.returncode == 0:
+        return ""
+    return result.stderr.strip() or result.stdout.strip()
 
 
 def create_worktree(

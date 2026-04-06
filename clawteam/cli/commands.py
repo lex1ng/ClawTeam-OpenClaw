@@ -7,6 +7,7 @@ import subprocess
 import sys
 import time
 import uuid
+import os
 from pathlib import Path
 from typing import Optional
 
@@ -15,12 +16,14 @@ from rich.console import Console
 from rich.table import Table
 
 from clawteam import __version__
+from clawteam.version import FORK_NAME, PACKAGE_NAME, version_info
 from clawteam.team.manager import TeamManager
 
 app = typer.Typer(
     name="clawteam",
     help="Framework-agnostic multi-agent coordination CLI",
     no_args_is_help=True,
+    invoke_without_command=True,
 )
 console = Console()
 
@@ -33,16 +36,10 @@ _json_output: bool = False
 _data_dir: str | None = None
 
 
-def _version_callback(value: bool):
-    if value:
-        console.print(f"clawteam v{__version__}")
-        raise typer.Exit()
-
-
 @app.callback()
 def main(
     version: bool = typer.Option(
-        None, "--version", "-v", callback=_version_callback, is_eager=True,
+        False, "--version", "-v", is_eager=True,
         help="Show version and exit.",
     ),
     json_out: bool = typer.Option(
@@ -58,12 +55,18 @@ def main(
     """clawteam - Framework-agnostic multi-agent coordination CLI."""
     global _json_output, _data_dir
     _json_output = json_out
+    if version:
+        payload = version_info()
+        if _json_output:
+            print(json.dumps(payload, indent=2, ensure_ascii=False))
+        else:
+            console.print(f"{PACKAGE_NAME} v{payload['version']}")
+            console.print(f"fork: {payload['fork']}")
+        raise typer.Exit()
     if data_dir:
-        import os
         os.environ["CLAWTEAM_DATA_DIR"] = data_dir
         _data_dir = data_dir
     if transport:
-        import os
         os.environ["CLAWTEAM_TRANSPORT"] = transport
 
 
@@ -97,7 +100,7 @@ def config_show():
 
     keys = [
         "data_dir", "user", "default_team",
-        "transport", "workspace", "default_backend", "skip_permissions",
+        "transport", "workspace", "workspace_base_ref", "default_backend", "skip_permissions",
     ]
     data = {}
     for k in keys:
@@ -532,6 +535,41 @@ def _workspace_cwd_from_info(repo: str | None, ws_info) -> str:
         if relative_repo and str(relative_repo) != ".":
             return str((_Path(ws_info.worktree_path) / relative_repo).resolve())
     return cwd
+
+
+def _default_spawn_cwd(repo: str | None) -> str:
+    return str(Path(repo).expanduser().resolve()) if repo else str(Path.cwd().resolve())
+
+
+def _workspace_human_label(status: str) -> str:
+    if status == "created":
+        return "[green]Workspace created[/green]"
+    if status == "ready":
+        return "[green]Workspace ready[/green]"
+    if status == "skipped":
+        return "[yellow]Workspace skipped[/yellow]"
+    return "[red]Workspace failed[/red]"
+
+
+def _print_workspace_diagnostic(data: dict) -> None:
+    if _json_output:
+        return
+    console.print(f"{_workspace_human_label(data['status'])}")
+    console.print(f"  Requested path: {data.get('requestedPath') or '-'}")
+    console.print(f"  Repo root: {data.get('repoRoot') or '-'}")
+    console.print(f"  Workspace mode: {data.get('workspaceMode') or '-'}")
+    console.print(f"  Current branch: {data.get('currentBranch') or '-'}")
+    console.print(f"  Resolved base ref: {data.get('resolvedBaseRef') or '-'}")
+    console.print(f"  HEAD valid: {'yes' if data.get('headValid') else 'no'}")
+    console.print(f"  Worktree capable: {'yes' if data.get('worktreeCapable') else 'no'}")
+    if data.get("detail"):
+        console.print(f"  Detail: {data['detail']}")
+    if data.get("gitError"):
+        console.print(f"  Git error: {data['gitError']}")
+    if data.get("recommendations"):
+        console.print("  Recommended actions:")
+        for rec in data["recommendations"]:
+            console.print(f"    - {rec}")
 
 
 @team_app.command("status")
@@ -2541,6 +2579,7 @@ def spawn_agent(
     task: Optional[str] = typer.Option(None, "--task", help="Task to assign (becomes the agent's initial prompt)"),
     workspace: Optional[bool] = typer.Option(None, "--workspace/--no-workspace", "-w", help="Create isolated git worktree (default: auto)"),
     repo: Optional[str] = typer.Option(None, "--repo", help="Git repo path (default: cwd)"),
+    workspace_base_ref: Optional[str] = typer.Option(None, "--workspace-base-ref", help="Explicit git base ref for workspace creation"),
     skip_permissions: Optional[bool] = typer.Option(None, "--skip-permissions/--no-skip-permissions", help="Skip tool approval for claude (default: from config, true)"),
     resume: bool = typer.Option(False, "--resume", "-r", help="Resume previous session if available"),
 ):
@@ -2574,35 +2613,89 @@ def spawn_agent(
         raise typer.Exit(1)
 
     # Workspace: resolve from flag or config (default: auto)
-    cwd = None
+    cwd = _default_spawn_cwd(repo)
     ws_branch = ""
     ws_mode = ""
     ws_mgr = None
+    workspace_payload = {
+        "status": "disabled",
+        "workspaceMode": "never",
+        "requestedPath": cwd,
+        "repoRoot": None,
+        "isGitRepo": False,
+        "headValid": False,
+        "currentBranch": None,
+        "resolvedBaseRef": None,
+        "baseRefSource": None,
+        "worktreeCapable": False,
+        "reason": None,
+        "detail": None,
+        "recommendations": [],
+        "gitError": None,
+        "recommendedSpawnMode": "no-workspace",
+    }
     if workspace is None:
         ws_mode, _ = get_effective("workspace")
         ws_mode = ws_mode or "auto"
         workspace = ws_mode in ("auto", "always")
+        if workspace_base_ref is None:
+            base_ref_value, _ = get_effective("workspace_base_ref")
+            workspace_base_ref = base_ref_value or None
+    elif workspace is True:
+        ws_mode = "always"
     elif workspace is False:
         ws_mode = "never"
 
     if workspace:
-        from clawteam.workspace import get_workspace_manager
-        ws_mgr = get_workspace_manager(repo)
-        if ws_mgr is None:
-            if ws_mode not in ("auto", ""):
-                console.print("[red]Not in a git repository. Use --repo or cd into a repo.[/red]")
+        from clawteam.workspace import get_workspace_manager, inspect_workspace
+
+        diagnostic = inspect_workspace(repo, workspace_mode=ws_mode, base_ref=workspace_base_ref)
+        workspace_payload = diagnostic.to_payload()
+        if diagnostic.status == "ready":
+            ws_mgr = get_workspace_manager(repo, base_ref=diagnostic.resolved_base_ref)
+            if ws_mgr is None:
+                workspace_payload.update(
+                    {
+                        "status": "failed",
+                        "reason": "workspace_manager_unavailable",
+                        "detail": "Workspace manager could not be initialized after a successful preflight.",
+                        "recommendedSpawnMode": "no-workspace",
+                    }
+                )
+                _output(
+                    {"error": "workspace_preflight_failed", "workspace": workspace_payload},
+                    lambda d: _print_workspace_diagnostic(d["workspace"]),
+                )
                 raise typer.Exit(1)
-        else:
             ws_info = ws_mgr.create_workspace(team_name=_team, agent_name=_name, agent_id=_id)
             cwd = _workspace_cwd_from_info(repo, ws_info)
             ws_branch = ws_info.branch_name
-            console.print(f"[dim]Workspace: {cwd} (branch: {ws_branch})[/dim]")
+            workspace_payload.update(
+                {
+                    "status": "created",
+                    "worktreePath": ws_info.worktree_path,
+                    "branch": ws_info.branch_name,
+                    "repoRoot": ws_info.repo_root,
+                    "resolvedBaseRef": ws_info.base_branch,
+                    "worktreeCapable": True,
+                    "recommendedSpawnMode": "workspace",
+                }
+            )
+            if not _json_output:
+                console.print(f"[dim]Workspace: {cwd} (branch: {ws_branch})[/dim]")
+        elif ws_mode == "auto":
+            if not _json_output:
+                _print_workspace_diagnostic(workspace_payload)
+        else:
+            _output(
+                {"error": "workspace_preflight_failed", "workspace": workspace_payload},
+                lambda d: _print_workspace_diagnostic(d["workspace"]),
+            )
+            raise typer.Exit(1)
 
     # Build prompt: identity + task + clawteam coordination guide
     prompt = None
     if task:
-        import os as _os
-
         from clawteam.spawn.prompt import build_agent_prompt
         from clawteam.team.manager import TeamManager
 
@@ -2614,8 +2707,8 @@ def spawn_agent(
             team_name=_team,
             leader_name=leader_name,
             task=task,
-            user=_os.environ.get("CLAWTEAM_USER", ""),
-            workspace_dir=cwd or "",
+            user=os.environ.get("CLAWTEAM_USER", ""),
+            workspace_dir=cwd if ws_branch else "",
             workspace_branch=ws_branch,
             memory_scope=f"custom:team-{_team}",
         )
@@ -2634,8 +2727,6 @@ def spawn_agent(
                 prompt += "\nYou are resuming a previous session."
 
     # Auto-register agent as team member
-    import os as _os2
-
     from clawteam.team.manager import TeamManager
     member_added = False
     try:
@@ -2644,36 +2735,67 @@ def spawn_agent(
             member_name=_name,
             agent_id=_id,
             agent_type=agent_type,
-            user=_os2.environ.get("CLAWTEAM_USER", ""),
+            user=os.environ.get("CLAWTEAM_USER", ""),
         )
         member_added = True
     except ValueError:
         pass  # already a member, ignore
 
-    result = be.spawn(
-        command=command,
-        agent_name=_name,
-        agent_id=_id,
-        agent_type=agent_type,
-        team_name=_team,
-        prompt=prompt,
-        cwd=cwd,
-        skip_permissions=skip_permissions,
-    )
-
-    if result.startswith("Error"):
+    try:
+        result = be.spawn(
+            command=command,
+            agent_name=_name,
+            agent_id=_id,
+            agent_type=agent_type,
+            team_name=_team,
+            prompt=prompt,
+            cwd=cwd,
+            skip_permissions=skip_permissions,
+        )
+    except Exception as exc:
         if member_added:
             TeamManager.remove_member(_team, _name)
-        if ws_mgr is not None and cwd:
+        if ws_mgr is not None and ws_branch:
             try:
                 ws_mgr.cleanup_workspace(_team, _name, auto_checkpoint=False)
             except Exception:
                 pass
-        _output({"error": result}, lambda d: console.print(f"[red]{d['error']}[/red]"))
+        workspace_payload.update(
+            {
+                "status": "failed",
+                "reason": "workspace_create_failed" if ws_branch else workspace_payload.get("reason"),
+                "detail": str(exc),
+            }
+        )
+        _output(
+            {"error": "spawn_failed", "message": str(exc), "workspace": workspace_payload},
+            lambda d: (console.print(f"[red]{d['message']}[/red]"), _print_workspace_diagnostic(d["workspace"])),
+        )
+        raise typer.Exit(1)
+
+    if result.startswith("Error"):
+        if member_added:
+            TeamManager.remove_member(_team, _name)
+        if ws_mgr is not None and ws_branch:
+            try:
+                ws_mgr.cleanup_workspace(_team, _name, auto_checkpoint=False)
+            except Exception:
+                pass
+        _output(
+            {"error": result, "workspace": workspace_payload},
+            lambda d: (console.print(f"[red]{d['error']}[/red]"), _print_workspace_diagnostic(d["workspace"])),
+        )
         raise typer.Exit(1)
 
     _output(
-        {"status": "spawned", "backend": backend, "agentName": _name, "agentId": _id, "message": result},
+        {
+            "status": "spawned",
+            "backend": backend,
+            "agentName": _name,
+            "agentId": _id,
+            "message": result,
+            "workspace": workspace_payload,
+        },
         lambda d: console.print(f"[green]OK[/green] {d['message']}"),
     )
 
@@ -2993,6 +3115,23 @@ def workspace_status(
     console.print(stat)
 
 
+@workspace_app.command("doctor")
+def workspace_doctor(
+    repo: Optional[str] = typer.Option(None, "--repo", help="Git repo path (default: cwd)"),
+    workspace_mode: str = typer.Option("auto", "--workspace-mode", help="Interpretation mode: auto or always"),
+    workspace_base_ref: Optional[str] = typer.Option(None, "--workspace-base-ref", help="Explicit base ref override"),
+):
+    """Diagnose whether a repository is safe for workspace-backed spawn."""
+    from clawteam.workspace import inspect_workspace
+
+    report = inspect_workspace(repo, workspace_mode=workspace_mode, base_ref=workspace_base_ref)
+    payload = report.to_payload()
+    if _json_output:
+        _output(payload)
+        return
+    _print_workspace_diagnostic(payload)
+
+
 # ============================================================================
 # Template Commands
 # ============================================================================
@@ -3079,6 +3218,7 @@ def launch_team(
     team_name: Optional[str] = typer.Option(None, "--team-name", "-t", help="Override team name"),
     workspace: bool = typer.Option(False, "--workspace/--no-workspace", "-w"),
     repo: Optional[str] = typer.Option(None, "--repo", help="Git repo path"),
+    workspace_base_ref: Optional[str] = typer.Option(None, "--workspace-base-ref", help="Explicit git base ref for workspace creation"),
     command_override: Optional[list[str]] = typer.Option(None, "--command", help="Override agent command"),
 ):
     """Launch a full agent team from a template with one command."""
@@ -3148,10 +3288,15 @@ def launch_team(
     # 7. Workspace setup (optional)
     ws_mgr = None
     if workspace:
-        from clawteam.workspace import get_workspace_manager
-        ws_mgr = get_workspace_manager(repo)
+        from clawteam.workspace import get_workspace_manager, inspect_workspace
+
+        report = inspect_workspace(repo, workspace_mode="always", base_ref=workspace_base_ref)
+        if report.status != "ready":
+            _print_workspace_diagnostic(report.to_payload())
+            raise typer.Exit(1)
+        ws_mgr = get_workspace_manager(repo, base_ref=report.resolved_base_ref)
         if ws_mgr is None:
-            console.print("[red]Not in a git repository. Use --repo or cd into a repo.[/red]")
+            console.print("[red]Workspace manager unavailable for the requested repository.[/red]")
             raise typer.Exit(1)
 
     # 8. Spawn all agents (leader first, then workers)
@@ -3171,7 +3316,7 @@ def launch_team(
         )
 
         # Workspace
-        cwd = None
+        cwd = _default_spawn_cwd(repo)
         ws_branch = ""
         if ws_mgr:
             ws_info = ws_mgr.create_workspace(
@@ -3189,7 +3334,7 @@ def launch_team(
             leader_name=tmpl.leader.name,
             task=rendered,
             user=_os.environ.get("CLAWTEAM_USER", ""),
-            workspace_dir=cwd or "",
+            workspace_dir=cwd if ws_branch else "",
             workspace_branch=ws_branch,
             memory_scope=f"custom:team-{t_name}",
         )

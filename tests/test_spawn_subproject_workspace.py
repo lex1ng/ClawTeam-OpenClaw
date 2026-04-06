@@ -6,6 +6,7 @@ from typer.testing import CliRunner
 
 from clawteam.cli.commands import app
 from clawteam.team.manager import TeamManager
+from clawteam.workspace.models import WorkspacePreflight
 
 
 class FakeBackend:
@@ -21,10 +22,17 @@ class FakeBackend:
 
 
 class FakeWorkspaceInfo:
-    def __init__(self, worktree_path: str, repo_root: str, branch_name: str = "clawteam/demo/worker"):
+    def __init__(
+        self,
+        worktree_path: str,
+        repo_root: str,
+        branch_name: str = "clawteam/demo/worker",
+        base_branch: str = "main",
+    ):
         self.worktree_path = worktree_path
         self.repo_root = repo_root
         self.branch_name = branch_name
+        self.base_branch = base_branch
 
 
 class FakeWorkspaceManager:
@@ -51,7 +59,22 @@ def test_spawn_uses_subproject_cwd_inside_worktree(monkeypatch, tmp_path):
     ws_mgr = FakeWorkspaceManager(ws_info)
 
     monkeypatch.setattr("clawteam.spawn.get_backend", lambda _: backend)
-    monkeypatch.setattr("clawteam.workspace.get_workspace_manager", lambda repo=None: ws_mgr)
+    monkeypatch.setattr(
+        "clawteam.workspace.inspect_workspace",
+        lambda repo=None, workspace_mode="auto", base_ref=None: WorkspacePreflight(
+            status="ready",
+            workspace_mode=workspace_mode,
+            requested_path=str(Path(repo) if repo else subproject),
+            repo_root=str(repo_root),
+            is_git_repo=True,
+            head_valid=True,
+            current_branch="main",
+            resolved_base_ref=base_ref or "main",
+            base_ref_source="override" if base_ref else "current_branch",
+            worktree_capable=True,
+        ),
+    )
+    monkeypatch.setattr("clawteam.workspace.get_workspace_manager", lambda repo=None, base_ref=None: ws_mgr)
 
     runner = CliRunner()
     result = runner.invoke(

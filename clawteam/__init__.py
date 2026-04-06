@@ -1,3 +1,5 @@
 """ClawTeam - Framework-agnostic multi-agent coordination CLI."""
 
-__version__ = "0.3.0"
+from clawteam.version import FORK_NAME, PACKAGE_NAME, __version__, version_info
+
+__all__ = ["__version__", "FORK_NAME", "PACKAGE_NAME", "version_info"]

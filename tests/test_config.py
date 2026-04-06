@@ -12,6 +12,7 @@ class TestClawTeamConfig:
         assert cfg.default_backend == "tmux"
         assert cfg.skip_permissions is True
         assert cfg.workspace == "auto"
+        assert cfg.workspace_base_ref == ""
 
     def test_custom_values(self):
         cfg = ClawTeamConfig(user="alice", default_backend="subprocess", workspace="never")
@@ -82,6 +83,12 @@ class TestGetEffective:
         monkeypatch.setenv("CLAWTEAM_DATA_DIR", "/custom/path")
         val, source = get_effective("data_dir")
         assert val == "/custom/path"
+        assert source == "env"
+
+    def test_workspace_base_ref_env(self, monkeypatch):
+        monkeypatch.setenv("CLAWTEAM_WORKSPACE_BASE_REF", "origin/main")
+        val, source = get_effective("workspace_base_ref")
+        assert val == "origin/main"
         assert source == "env"
 
     def test_unknown_key_returns_empty(self):

@@ -15,6 +15,7 @@ class ClawTeamConfig(BaseModel):
     default_team: str = ""
     transport: str = ""
     workspace: str = "auto"  # "auto" | "always" | "never" | ""
+    workspace_base_ref: str = ""
     default_backend: str = "tmux"  # "tmux" | "subprocess"
     skip_permissions: bool = True  # pass --dangerously-skip-permissions to claude
 
@@ -56,6 +57,7 @@ def get_effective(key: str) -> tuple[str, str]:
         "default_team": "CLAWTEAM_TEAM_NAME",
         "transport": "CLAWTEAM_TRANSPORT",
         "workspace": "CLAWTEAM_WORKSPACE",
+        "workspace_base_ref": "CLAWTEAM_WORKSPACE_BASE_REF",
         "default_backend": "CLAWTEAM_DEFAULT_BACKEND",
         "skip_permissions": "CLAWTEAM_SKIP_PERMISSIONS",
     }

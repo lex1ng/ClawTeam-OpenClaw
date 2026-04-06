@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from clawteam.workspace import git
-from clawteam.workspace.models import WorkspaceInfo, WorkspaceRegistry
+from clawteam.workspace.models import WorkspaceInfo, WorkspacePreflight, WorkspaceRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +76,7 @@ def _save_registry(registry: WorkspaceRegistry) -> None:
 class WorkspaceManager:
     """Manages git worktree-based isolated workspaces for agents."""
 
-    def __init__(self, repo_path: Path | None = None):
+    def __init__(self, repo_path: Path | None = None, *, base_ref: str | None = None):
         cwd = (repo_path or Path.cwd()).resolve()
         self.requested_path = cwd
         self.repo_root = git.repo_root(cwd)
@@ -87,7 +87,7 @@ class WorkspaceManager:
                 self.repo_subpath = str(relative)
         except ValueError:
             self.repo_subpath = ""
-        self.base_branch = git.current_branch(self.repo_root)
+        self.base_branch = base_ref or git.current_branch(self.repo_root)
 
     # ------------------------------------------------------------------
     # Create
@@ -248,12 +248,87 @@ class WorkspaceManager:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def try_create(repo_path: Path | None = None) -> WorkspaceManager | None:
+    def try_create(
+        repo_path: Path | None = None,
+        *,
+        base_ref: str | None = None,
+    ) -> WorkspaceManager | None:
         """Return a WorkspaceManager if inside a git repo, else None."""
         try:
-            return WorkspaceManager(repo_path)
+            return WorkspaceManager(repo_path, base_ref=base_ref)
         except git.GitError:
             return None
+
+    @staticmethod
+    def diagnose(
+        repo_path: Path | None = None,
+        *,
+        workspace_mode: str = "auto",
+        base_ref: str | None = None,
+    ) -> WorkspacePreflight:
+        requested = (repo_path or Path.cwd()).resolve()
+        report = WorkspacePreflight(
+            status="ready",
+            workspace_mode=workspace_mode,
+            requested_path=str(requested),
+            base_ref_source="override" if base_ref else "auto",
+        )
+        recommendations = ["--no-workspace"]
+        if repo_path is None:
+            recommendations.append("--repo <path>")
+        if base_ref is None:
+            recommendations.append("--workspace-base-ref <ref>")
+
+        if not git.is_git_repo(requested):
+            report.status = "skipped" if workspace_mode == "auto" else "failed"
+            report.reason = "not_git_repo"
+            report.detail = "Requested path is not inside a git repository."
+            report.recommendations = recommendations
+            return report
+
+        repo_root = git.repo_root(requested)
+        report.repo_root = str(repo_root)
+        report.is_git_repo = True
+        report.current_branch = git.symbolic_head(repo_root) or git.current_branch(repo_root)
+        report.head_valid = git.head_is_valid(repo_root)
+
+        if base_ref:
+            report.resolved_base_ref = base_ref
+            if not git.ref_exists(repo_root, base_ref):
+                report.status = "skipped" if workspace_mode == "auto" else "failed"
+                report.reason = "invalid_base_ref"
+                report.detail = f"Base ref '{base_ref}' does not resolve to a commit."
+                report.recommendations = recommendations
+                return report
+        elif report.head_valid:
+            report.resolved_base_ref = report.current_branch
+            report.base_ref_source = "current_branch"
+        else:
+            report.status = "skipped" if workspace_mode == "auto" else "failed"
+            report.reason = "invalid_head"
+            report.detail = "Repository HEAD does not resolve to a commit yet."
+            report.recommendations = recommendations
+            return report
+
+        if git.is_bare_repo(repo_root):
+            report.status = "skipped" if workspace_mode == "auto" else "failed"
+            report.reason = "bare_repo"
+            report.detail = "Bare repositories are not used as agent worktree sources."
+            report.recommendations = recommendations
+            return report
+
+        worktree_error = git.worktree_support_error(repo_root)
+        if worktree_error:
+            report.status = "skipped" if workspace_mode == "auto" else "failed"
+            report.reason = "worktree_unavailable"
+            report.detail = "Repository does not support `git worktree` in its current state."
+            report.git_error = worktree_error
+            report.recommendations = recommendations
+            return report
+
+        report.worktree_capable = True
+        report.recommendations = []
+        return report
 
     # ------------------------------------------------------------------
     # Internal

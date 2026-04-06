@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/python-≥3.10-blue?logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/agents-OpenClaw_%7C_Claude_Code_%7C_Codex_%7C_nanobot-blueviolet" alt="Agents">
   <img src="https://img.shields.io/badge/transport-File_%7C_ZeroMQ_P2P-orange" alt="Transport">
-  <img src="https://img.shields.io/badge/version-0.3.0-teal" alt="Version">
+  <img src="https://img.shields.io/badge/version-0.3.1%2Bopenclaw.1-teal" alt="Version">
 </p>
 
 > **Fork of [HKUDS/ClawTeam](https://github.com/HKUDS/ClawTeam)** with deep OpenClaw integration: default `openclaw` agent, per-agent session isolation, exec approval auto-config, and production-hardened spawn backends. All upstream fixes are synced.
@@ -75,7 +75,7 @@ Monitor the swarm from a tiled tmux view or Web UI. The leader handles coordinat
 ```bash
 clawteam board attach my-team
 # Or web dashboard
-clawteam board serve --port 8080
+clawteam board serve --host 0.0.0.0 --port 8080
 ```
 
 </td>
@@ -148,7 +148,7 @@ clawteam audit timeline --team my-team
 # Inspect the same durable model from board surfaces
 clawteam board show my-team
 clawteam --json board show my-team
-clawteam board serve --port 8080
+clawteam board serve --host 0.0.0.0 --port 8080
 ```
 
 Current V1 limits:
@@ -163,6 +163,46 @@ Current V1 limits:
 - `board serve` currently depends on external CDN assets
 
 See [docs/runtime-console-operator-guide.md](docs/runtime-console-operator-guide.md) for the operator guide covering authority model, command usage, support boundaries, and current V1 limits.
+
+---
+
+## First-Install Truths
+
+These defaults are now explicit and tested:
+
+- `clawteam spawn` defaults to `tmux + openclaw`
+- the default OpenClaw tmux worker path uses `openclaw tui --deliver`, so the injected task prompt reaches provider-backed execution instead of opening an idle TUI
+- `spawn` guarantees process/window launch, identity injection, prompt injection, and durable team/task visibility; it does not itself prove task completion or coding-job success
+- `clawteam board serve` is a convenience UI only; persisted state, CLI output, and Rich board output remain authoritative
+
+Workspace modes are intentionally different:
+
+- `auto`: run a git preflight first; if the repo is healthy and worktree-capable, create an isolated worktree, otherwise continue without workspace and print structured diagnostics
+- `always`: run the same preflight, but fail loudly instead of silently falling back
+- `never` / `--no-workspace`: skip worktree creation and run in the requested repo/cwd directly
+
+Use these commands when the default repo is not a trustworthy project repo:
+
+```bash
+# Inspect whether a repo is safe for worktree isolation
+clawteam workspace doctor --repo /path/to/repo
+
+# OpenClaw scratch workspaces are often not the repo you want to branch from
+clawteam spawn --team my-team --agent-name worker1 --no-workspace --repo /real/project/repo --task "Implement auth flow"
+
+# Or keep worktree isolation but pin the base ref explicitly
+clawteam spawn --team my-team --agent-name worker1 --repo /real/project/repo --workspace-base-ref origin/main --task "Implement auth flow"
+```
+
+If you are inside an OpenClaw scratch workspace or an unborn/broken git repo, prefer `--no-workspace` or point `--repo` at the real project checkout.
+
+Version identity is fork-specific and now consistent across package metadata, import metadata, and CLI output:
+
+```bash
+clawteam --version
+# clawteam v0.3.1+openclaw.1
+# fork: ClawTeam-OpenClaw
+```
 
 ---
 
@@ -184,7 +224,7 @@ The agent auto-creates a team, spawns workers, assigns tasks, and coordinates �
 # Create a team
 clawteam team spawn-team my-team -d "Build the auth module" -n leader
 
-# Spawn workers — each gets a git worktree + tmux window
+# Spawn workers — each gets an OpenClaw tmux window and, when healthy, a git worktree
 clawteam spawn --team my-team --agent-name alice --task "Implement OAuth2 flow"
 clawteam spawn --team my-team --agent-name bob   --task "Write unit tests for auth"
 
@@ -309,7 +349,7 @@ openclaw approvals allowlist add --agent "*" "*/clawteam"
 ### Step 6: Verify
 
 ```bash
-clawteam --version          # Should print version
+clawteam --version          # clawteam v0.3.1+openclaw.1 / fork: ClawTeam-OpenClaw
 clawteam config health      # Should show all green
 ```
 
@@ -527,13 +567,14 @@ OpenClaw versus non-OpenClaw support in this fork:
            │
            ▼
   ┌──────────────────┐     clawteam spawn     ┌─────────────────┐
-  │  Leader Agent    │ ─────────────────────► │  openclaw tui   │
+  │  Leader Agent    │ ─────────────────────► │ openclaw tui    │
   │  (openclaw)      │ ──┐                    │  (tmux window)  │
+  │                  │   │                    │   --deliver     │
   │                  │   │                    │  git worktree   │
   │  Manages swarm   │   ├──────────────────► ├─────────────────┤
-  │  via clawteam    │   │                    │  openclaw tui   │
+  │  via clawteam    │   │                    │ openclaw tui    │
   │  CLI             │   ├──────────────────► ├─────────────────┤
-  └──────────────────┘   │                    │  openclaw tui   │
+  └──────────────────┘   │                    │ openclaw tui    │
                          └──────────────────► └─────────────────┘
                                                All coordinate via
                                                ~/.clawteam/ (tasks, inboxes)
@@ -574,6 +615,7 @@ All state lives in `~/.clawteam/` as JSON files. No database, no server. Atomic 
 | Data directory | `CLAWTEAM_DATA_DIR` | `~/.clawteam` |
 | Transport | `CLAWTEAM_TRANSPORT` | `file` |
 | Workspace mode | `CLAWTEAM_WORKSPACE` | `auto` |
+| Workspace base ref | `CLAWTEAM_WORKSPACE_BASE_REF` | unset |
 | Spawn backend | `CLAWTEAM_DEFAULT_BACKEND` | `tmux` |
 
 ---
@@ -610,7 +652,7 @@ clawteam inbox peek <team>                # read without consuming
 clawteam board show <team>                # terminal kanban
 clawteam board live <team> --interval 3   # auto-refresh
 clawteam board attach <team>              # tiled tmux view
-clawteam board serve --port 8080          # web UI
+clawteam board serve --host 0.0.0.0 --port 8080   # web UI
 ```
 
 </details>
@@ -646,7 +688,7 @@ clawteam audit timeline --team <team>
 # Board surfaces over the same durable model
 clawteam board show <team>
 clawteam --json board show <team>
-clawteam board serve --port 8080
+clawteam board serve --host 0.0.0.0 --port 8080
 ```
 
 </details>

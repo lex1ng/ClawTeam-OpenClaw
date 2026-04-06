@@ -4,6 +4,14 @@ This guide documents the current shipped runtime-console and coding-runtime beha
 
 It reflects the current `9.1`-level baseline on the `feature/coding-agent-callback-runtime` line.
 
+Current fork identity:
+
+```bash
+clawteam --version
+# clawteam v0.3.1+openclaw.1
+# fork: ClawTeam-OpenClaw
+```
+
 ## What This Subsystem Does
 
 The coding callback runtime executes a coding provider inside a worker-owned workspace/worktree, persists durable job state and artifacts, returns a structured callback result to the same worker, and exposes operator inspection surfaces over that durable state.
@@ -90,6 +98,41 @@ Other CLI agents can still participate in:
 
 But the current coding callback runtime provider adapters are limited to `claude` and `codex`.
 
+## Spawn and Workspace Truth
+
+The default swarm-worker path in this fork is:
+
+- backend: `tmux`
+- worker executable: `openclaw`
+- effective OpenClaw tmux mode: `openclaw tui --deliver`
+
+The `--deliver` flag matters. Without it, an OpenClaw TUI can appear alive while never handing the injected prompt to a provider-backed run.
+
+`clawteam spawn` guarantees:
+
+- durable team/member/task visibility
+- process or tmux-window launch
+- identity injection
+- initial prompt injection
+
+`clawteam spawn` does not by itself prove:
+
+- task completion
+- coding job success
+- provider callback success
+
+Workspace modes:
+
+- `auto`: preflight the repo, create a worktree only when the repo is git-healthy and worktree-capable, otherwise continue without workspace and emit diagnostics
+- `always`: run the same preflight, but fail instead of falling back
+- `never` / `--no-workspace`: skip worktree creation and run directly in the requested repo/cwd
+
+Operational guidance:
+
+- use `clawteam workspace doctor --repo <path>` before relying on a repo for worktree isolation
+- use `--no-workspace` when OpenClaw dropped you into a scratch workspace that is not the real project checkout
+- use `--workspace-base-ref <ref>` when the current branch is not the correct worktree base
+
 ## Durable Storage Layout
 
 Coding runtime:
@@ -170,7 +213,7 @@ Use:
 clawteam board show my-team
 clawteam --json board show my-team
 clawteam board live my-team
-clawteam board serve --port 8080
+clawteam board serve --host 0.0.0.0 --port 8080
 ```
 
 Current board semantics:
@@ -220,4 +263,3 @@ Current board semantics:
 
 - Claude Code / Codex provider configuration and account state remain external
 - provider session metadata may be unavailable and is surfaced honestly as `ephemeral` / `unavailable`
-
