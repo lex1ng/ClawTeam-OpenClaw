@@ -296,7 +296,7 @@ Both issues matter directly to trustworthiness.
 
 The hardening plan already added for the coding runtime remains useful as the implementation-quality follow-up:
 
-- [2026-04-05-coding-runtime-quality-hardening-guide.md](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/plans/2026-04-05-coding-runtime-quality-hardening-guide.md)
+- [2026-04-05-coding-runtime-quality-hardening-guide.md](/root/github.com/ClawTeam-OpenClaw/docs/agent/plans/2026-04-05-coding-runtime-quality-hardening-guide.md)
 
 However, based on this re-review, the actual implementation order should be:
 

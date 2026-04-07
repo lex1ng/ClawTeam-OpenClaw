@@ -2,7 +2,7 @@
 
 **Date:** 2026-04-05
 **Repository:** ClawTeam-OpenClaw
-**Primary Spec:** [2026-04-05-runtime-console-cli-board-design.md](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/specs/2026-04-05-runtime-console-cli-board-design.md)
+**Primary Spec:** [2026-04-05-runtime-console-cli-board-design.md](/root/github.com/ClawTeam-OpenClaw/docs/design/specs/2026-04-05-runtime-console-cli-board-design.md)
 **Audience:** The coding agent implementing the Runtime Console design
 **Purpose:** Convert the approved runtime console spec into a concrete execution plan with explicit agent instructions, phase scope, engineering constraints, testing requirements, and reporting expectations.
 
@@ -12,9 +12,9 @@
 
 Before writing code, the agent must read and follow these documents in order:
 
-1. [Runtime Console Design for CLI + Web Board](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/specs/2026-04-05-runtime-console-cli-board-design.md)
-2. [Coding Callback Runtime Re-Review](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/reviews/2026-04-05-coding-callback-runtime-rereview.md)
-3. [Coding Runtime Quality Hardening Guide](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/plans/2026-04-05-coding-runtime-quality-hardening-guide.md)
+1. [Runtime Console Design for CLI + Web Board](/root/github.com/ClawTeam-OpenClaw/docs/design/specs/2026-04-05-runtime-console-cli-board-design.md)
+2. [Coding Callback Runtime Re-Review](/root/github.com/ClawTeam-OpenClaw/docs/agent/reviews/2026-04-05-coding-callback-runtime-rereview.md)
+3. [Coding Runtime Quality Hardening Guide](/root/github.com/ClawTeam-OpenClaw/docs/agent/plans/2026-04-05-coding-runtime-quality-hardening-guide.md)
 
 The design spec is the primary source for scope and object semantics. The re-review and hardening guide define the existing runtime quality bar that must not regress.
 
@@ -406,11 +406,11 @@ The agent should be given the following direct instruction:
 ```text
 Read and implement the Runtime Console design spec at:
 
-docs/superpowers/specs/2026-04-05-runtime-console-cli-board-design.md
+docs/design/specs/2026-04-05-runtime-console-cli-board-design.md
 
 Also read:
-- docs/superpowers/reviews/2026-04-05-coding-callback-runtime-rereview.md
-- docs/superpowers/plans/2026-04-05-coding-runtime-quality-hardening-guide.md
+- docs/agent/reviews/2026-04-05-coding-callback-runtime-rereview.md
+- docs/agent/plans/2026-04-05-coding-runtime-quality-hardening-guide.md
 
 Your job is to implement the Runtime Console across CLI and Web board as a professional operator surface.
 

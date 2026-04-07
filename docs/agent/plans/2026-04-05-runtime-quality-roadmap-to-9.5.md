@@ -48,13 +48,13 @@ It requires another quality pass focused on:
 
 Read these documents in order:
 
-1. [Coding Agent Callback Design](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/specs/2026-04-04-coding-agent-callback-design.md)
-2. [Runtime Console Design for CLI + Web Board](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/specs/2026-04-05-runtime-console-cli-board-design.md)
-3. [Coding Callback Runtime Re-Review](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/reviews/2026-04-05-coding-callback-runtime-rereview.md)
-4. [Runtime Console Commit Review](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/reviews/2026-04-05-runtime-console-commit-review.md)
-5. [Runtime Console Remediation Tasking](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/plans/2026-04-05-runtime-console-remediation-tasking.md)
-6. [Runtime Console V1 Gap Closure Plan](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/plans/2026-04-05-runtime-console-gap-closure-plan.md)
-7. [Runtime Quality Roadmap To 9.5+](/root/github.com/ClawTeam-OpenClaw/docs/superpowers/plans/2026-04-05-runtime-quality-roadmap-to-9.5.md)
+1. [Coding Agent Callback Design](/root/github.com/ClawTeam-OpenClaw/docs/design/specs/2026-04-04-coding-agent-callback-design.md)
+2. [Runtime Console Design for CLI + Web Board](/root/github.com/ClawTeam-OpenClaw/docs/design/specs/2026-04-05-runtime-console-cli-board-design.md)
+3. [Coding Callback Runtime Re-Review](/root/github.com/ClawTeam-OpenClaw/docs/agent/reviews/2026-04-05-coding-callback-runtime-rereview.md)
+4. [Runtime Console Commit Review](/root/github.com/ClawTeam-OpenClaw/docs/agent/reviews/2026-04-05-runtime-console-commit-review.md)
+5. [Runtime Console Remediation Tasking](/root/github.com/ClawTeam-OpenClaw/docs/agent/plans/2026-04-05-runtime-console-remediation-tasking.md)
+6. [Runtime Console V1 Gap Closure Plan](/root/github.com/ClawTeam-OpenClaw/docs/agent/plans/2026-04-05-runtime-console-gap-closure-plan.md)
+7. [Runtime Quality Roadmap To 9.5+](/root/github.com/ClawTeam-OpenClaw/docs/agent/plans/2026-04-05-runtime-quality-roadmap-to-9.5.md)
 
 ## Current Strengths
 
@@ -386,13 +386,13 @@ When reporting progress or completion, always include:
 
 ```text
 Read:
-1. docs/superpowers/specs/2026-04-04-coding-agent-callback-design.md
-2. docs/superpowers/specs/2026-04-05-runtime-console-cli-board-design.md
-3. docs/superpowers/reviews/2026-04-05-coding-callback-runtime-rereview.md
-4. docs/superpowers/reviews/2026-04-05-runtime-console-commit-review.md
-5. docs/superpowers/plans/2026-04-05-runtime-console-remediation-tasking.md
-6. docs/superpowers/plans/2026-04-05-runtime-console-gap-closure-plan.md
-7. docs/superpowers/plans/2026-04-05-runtime-quality-roadmap-to-9.5.md
+1. docs/design/specs/2026-04-04-coding-agent-callback-design.md
+2. docs/design/specs/2026-04-05-runtime-console-cli-board-design.md
+3. docs/agent/reviews/2026-04-05-coding-callback-runtime-rereview.md
+4. docs/agent/reviews/2026-04-05-runtime-console-commit-review.md
+5. docs/agent/plans/2026-04-05-runtime-console-remediation-tasking.md
+6. docs/agent/plans/2026-04-05-runtime-console-gap-closure-plan.md
+7. docs/agent/plans/2026-04-05-runtime-quality-roadmap-to-9.5.md
 
 Then continue hardening the project toward the 9.5+ quality bar.
 

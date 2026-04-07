@@ -4,7 +4,7 @@
 
 **Goal:** Build a professional, controllable, observable, and trustworthy coding-agent callback runtime on top of ClawTeam-OpenClaw, using persistent teams and worker-owned git worktrees. Claude and Codex should execute inside worker workspaces, return structured results to the same worker, and allow the worker to continue, report, escalate, complete, or block.
 
-**Primary Spec:** `docs/superpowers/specs/2026-04-04-coding-agent-callback-design.md`
+**Primary Spec:** `docs/design/specs/2026-04-04-coding-agent-callback-design.md`
 
 **Platform Decision:** Build on `ClawTeam-OpenClaw`, not Legion.
 

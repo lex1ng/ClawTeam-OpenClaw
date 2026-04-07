@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+, Pydantic v2, typer, pytest, tomllib
 
-**Spec:** `docs/superpowers/specs/2026-03-21-per-agent-model-assignment-design.md`
+**Spec:** `docs/design/specs/2026-03-21-per-agent-model-assignment-design.md`
 
 ---
 
