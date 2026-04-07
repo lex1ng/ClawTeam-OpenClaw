@@ -50,6 +50,14 @@ The runtime keeps these objects distinct:
 
 This separation is intentional.
 
+Team identity now also carries a fixed reusable profile split:
+
+- machine-facing identity: `memberId`, `agentId`, task/job/callback ids, session keys
+- human-facing identity: `memberNickname`, `memberDisplayName`, `memberRole`
+- session routing hints: `preferredSessionKey`, `sessionRouting`
+- ambiguity rule: when multiple members share the same logical name across users,
+  identity-sensitive updates must include user scoping; operations do not guess a target member.
+
 Do not treat process exit, callback completion, task completion, session closure, or runtime-console visibility as the same fact.
 
 ## Provider and Support Model
@@ -241,6 +249,8 @@ Current board semantics:
 - `1 worker = 1 active coding job`
 - `1 task = 1 active provider execution`
 - coding job state is separate from worker decision
+- task lifecycle, callback lifecycle, and review lifecycle are tracked separately
+- callback handoff artifacts are explicit and can be incomplete with missing-field detection
 - default cwd remains inside the worker workspace/worktree boundary unless explicit escape is allowed
 - success requires structured result normalization
 - raw stdout/stderr are preserved even when normalization fails
@@ -258,6 +268,27 @@ Current board semantics:
 4. Use `clawteam coding session show/events` to inspect provider-session state and callback causality.
 5. Use `clawteam faults list` and `clawteam audit timeline` if the runtime looks degraded or inconsistent.
 6. Use `clawteam board show` or `clawteam --json board show` for cross-object inspection; use `board serve` only as a convenience UI.
+
+## Handoff and Lifecycle Contract
+
+`clawteam coding callback-report` supports explicit handoff sections that are persisted into task metadata and callback records:
+
+- objective
+- inputs
+- outputs
+- validation/self-test
+- blockers
+- risks
+- recommended next step
+- callback expectation
+
+When required sections are missing, task metadata records `handoffMissingFields` and marks callback lifecycle as `incomplete` while preserving the callback report itself.
+
+## Session Bridge Fail-Safe Semantics
+
+Session bridge records are non-authoritative acceleration metadata only.
+
+For worker->leader notice synthesis, ClawTeam resolves members by machine-facing identity first (`workerId`/`agentId`), then only uses name lookup when unique. If identity is insufficient and name resolution is ambiguous, the runtime skips notice creation rather than guessing.
 
 ## Residual Risks
 

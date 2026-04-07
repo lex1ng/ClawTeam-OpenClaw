@@ -118,18 +118,26 @@ class BoardRenderer:
         has_user = any(m.get("user") for m in members)
         mem_table = Table(title="Members")
         mem_table.add_column("Name", style="cyan")
+        mem_table.add_column("Nickname", style="magenta")
+        mem_table.add_column("Role")
         if has_user:
             mem_table.add_column("User", style="magenta")
         mem_table.add_column("Type")
+        mem_table.add_column("Session Key", style="dim")
         mem_table.add_column("Joined", style="dim")
         mem_table.add_column("Inbox", justify="right")
         for m in members:
             inbox_style = "red" if m["inboxCount"] > 0 else "dim"
-            row = [m["name"]]
+            row = [
+                m["name"],
+                m.get("memberNickname", m["name"]),
+                m.get("memberRole", m["agentType"]),
+            ]
             if has_user:
                 row.append(m.get("user", ""))
             row.extend([
                 m["agentType"],
+                m.get("preferredSessionKey", ""),
                 m["joinedAt"][:19],
                 f"[{inbox_style}]{m['inboxCount']}[/{inbox_style}]",
             ])
@@ -246,6 +254,17 @@ class BoardRenderer:
                     f"progress={row.get('progressState', '-')}  "
                     f"wait={row.get('waitingFor', '-')}"
                 )
+                lines.append(
+                    "  lifecycle: "
+                    f"task={row.get('taskLifecyclePhase', '-') or '-'}  "
+                    f"callback={row.get('callbackLifecyclePhase', '-') or '-'}  "
+                    f"review={row.get('reviewLifecyclePhase', '-') or '-'}"
+                )
+                if row.get("handoffMissingFields"):
+                    lines.append(
+                        "  handoff missing: "
+                        + ", ".join(row.get("handoffMissingFields", []))
+                    )
             if team_row:
                 lines.append("")
                 lines.append(
@@ -327,6 +346,14 @@ class BoardRenderer:
                     )
                     if coding.get("summary"):
                         lines.append(f"  summary: {coding['summary']}")
+                lines.append(
+                    "  lifecycle: "
+                    f"task={t.get('taskLifecyclePhase', '-')}  "
+                    f"callback={t.get('callbackLifecyclePhase', '-')}  "
+                    f"review={t.get('reviewLifecyclePhase', '-')}"
+                )
+                if t.get("handoffMissingFields"):
+                    lines.append(f"  handoff missing: {', '.join(t['handoffMissingFields'])}")
                 lines.append("")
 
             body = "\n".join(lines).rstrip() if lines else "[dim]  (none)[/dim]"

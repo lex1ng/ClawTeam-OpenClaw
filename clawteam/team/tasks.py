@@ -12,7 +12,11 @@ from pathlib import Path
 from typing import Any
 
 from clawteam.team.models import (
+    CallbackLifecyclePhase,
+    ReviewLifecyclePhase,
+    TaskHandoffContract,
     TaskItem,
+    TaskLifecyclePhase,
     TaskStatus,
     WorkerCodingCallbackReport,
     get_data_dir,
@@ -127,6 +131,9 @@ class TaskStore:
         )
         if task.blocked_by:
             task.status = TaskStatus.blocked
+            task.task_lifecycle_phase = TaskLifecyclePhase.blocked
+        else:
+            task.task_lifecycle_phase = TaskLifecyclePhase.planned
         with self._write_lock():
             self._save_unlocked(task)
         return task
@@ -195,6 +202,7 @@ class TaskStore:
 
             if status is not None:
                 task.status = status
+                task.task_lifecycle_phase = self._task_phase_for_status(status)
             if owner is not None:
                 task.owner = owner
             if subject is not None:
@@ -334,13 +342,32 @@ class TaskStore:
                 return None
         from clawteam.coding.service import CodingService
 
-        CodingService().record_callback_report(self.team_name, report)
+        updated_job = CodingService().record_callback_report(self.team_name, report)
 
         with self._write_lock():
             task = self._get_unlocked(task_id)
             if not task:
                 raise ValueError(f"Task '{task_id}' disappeared before callback metadata could be persisted.")
             callback_summary = json.loads(report.model_dump_json(by_alias=True, exclude_none=True))
+            handoff_contract = report.handoff_contract or TaskHandoffContract(
+                taskIdentity=report.task_id or report.job_id,
+                objective=report.summary,
+                inputs=[],
+                outputs=sorted((report.artifact_paths or {}).keys()),
+                validation="",
+                blockers=[],
+                risks=[],
+                recommendedNextStep=report.next_step,
+                callbackExpectation=report.callback_expectation or "team_leader_ack",
+            )
+            handoff_summary = json.loads(handoff_contract.model_dump_json(by_alias=True, exclude_none=True))
+            handoff_missing_fields = handoff_contract.missing_fields()
+            handoff_complete = len(handoff_missing_fields) == 0
+            callback_phase = self._callback_phase_for_decision(
+                report.decision.value,
+                handoff_complete=handoff_complete,
+            )
+            review_phase = self._review_phase_for_callback(callback_phase)
             coding_meta = {
                 "latestJobId": report.job_id,
                 "provider": report.provider,
@@ -349,11 +376,67 @@ class TaskStore:
                 "summary": report.summary,
                 "artifactPaths": dict(report.artifact_paths),
                 "reportedAt": report.reported_at,
+                "callbackExpectation": report.callback_expectation,
+                "handoffContract": handoff_summary,
+                "handoffComplete": handoff_complete,
+                "handoffMissingFields": handoff_missing_fields,
             }
             history = list(task.metadata.get("codingHistory", []))
             history.append(callback_summary)
             task.metadata["coding"] = coding_meta
             task.metadata["codingHistory"] = history
+            task.metadata["handoff"] = handoff_summary
+            task.metadata["lifecycle"] = {
+                "taskLifecyclePhase": (
+                    TaskLifecyclePhase.review.value
+                    if callback_phase in {CallbackLifecyclePhase.reported, CallbackLifecyclePhase.closed}
+                    else TaskLifecyclePhase.handoff.value
+                ),
+                "callbackLifecyclePhase": callback_phase.value,
+                "reviewLifecyclePhase": review_phase.value,
+                "handoffComplete": handoff_complete,
+                "handoffMissingFields": handoff_missing_fields,
+            }
+            task.callback_lifecycle_phase = callback_phase
+            task.review_lifecycle_phase = review_phase
+            task.handoff_complete = handoff_complete
+            task.handoff_missing_fields = handoff_missing_fields
+            if callback_phase in {CallbackLifecyclePhase.reported, CallbackLifecyclePhase.closed}:
+                task.task_lifecycle_phase = TaskLifecyclePhase.review
+            else:
+                task.task_lifecycle_phase = TaskLifecyclePhase.handoff
+            try:
+                from clawteam.team.manager import TeamManager
+                from clawteam.team.session_bridge import SessionBridge
+
+                config = TeamManager.get_team(self.team_name)
+                if config:
+                    worker_member = TeamManager.get_member_by_identity(
+                        self.team_name,
+                        agent_id=updated_job.worker_id,
+                        member_name=updated_job.worker_name,
+                    )
+                    leader_member = next(
+                        (member for member in config.members if member.agent_id == config.lead_agent_id),
+                        None,
+                    )
+                    if worker_member and leader_member:
+                        notice = SessionBridge().notify_worker_to_leader(
+                            team_name=self.team_name,
+                            worker_member=worker_member,
+                            leader_member=leader_member,
+                            task_id=report.task_id,
+                            job_id=report.job_id,
+                            payload={
+                                "summary": report.summary,
+                                "decision": report.decision.value,
+                                "callbackExpectation": report.callback_expectation,
+                            },
+                        )
+                        task.metadata["sessionBridgeNoticeId"] = notice.notice_id
+            except Exception:
+                # Session bridge notice is optional acceleration prep only.
+                pass
             task.updated_at = _now_iso()
             self._save_unlocked(task)
             return task
@@ -388,3 +471,41 @@ class TaskStore:
                     self._save_unlocked(task)
             except Exception:
                 continue
+
+    def _task_phase_for_status(self, status: TaskStatus) -> TaskLifecyclePhase:
+        if status == TaskStatus.in_progress:
+            return TaskLifecyclePhase.execution
+        if status == TaskStatus.completed:
+            return TaskLifecyclePhase.completed
+        if status == TaskStatus.blocked:
+            return TaskLifecyclePhase.blocked
+        return TaskLifecyclePhase.planned
+
+    def _callback_phase_for_decision(
+        self,
+        decision: str,
+        *,
+        handoff_complete: bool,
+    ) -> CallbackLifecyclePhase:
+        if decision == "continue":
+            return CallbackLifecyclePhase.pending
+        if decision == "escalate":
+            return CallbackLifecyclePhase.escalated
+        if decision == "blocked":
+            return CallbackLifecyclePhase.blocked
+        if decision == "complete":
+            return CallbackLifecyclePhase.closed
+        if handoff_complete:
+            return CallbackLifecyclePhase.reported
+        return CallbackLifecyclePhase.incomplete
+
+    def _review_phase_for_callback(self, callback_phase: CallbackLifecyclePhase) -> ReviewLifecyclePhase:
+        if callback_phase in {
+            CallbackLifecyclePhase.reported,
+            CallbackLifecyclePhase.closed,
+            CallbackLifecyclePhase.incomplete,
+            CallbackLifecyclePhase.escalated,
+            CallbackLifecyclePhase.blocked,
+        }:
+            return ReviewLifecyclePhase.pending
+        return ReviewLifecyclePhase.not_started

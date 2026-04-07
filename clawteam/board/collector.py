@@ -611,6 +611,11 @@ class BoardCollector:
                 "waitingFor": self._worker_waiting_for(callback_state, latest_job_record, active_task),
                 "callbackRecord": latest_callback_record,
                 "activeTaskStatus": (active_task or {}).get("status"),
+                "taskLifecyclePhase": (active_task or {}).get("taskLifecyclePhase"),
+                "callbackLifecyclePhase": (active_task or {}).get("callbackLifecyclePhase"),
+                "reviewLifecyclePhase": (active_task or {}).get("reviewLifecyclePhase"),
+                "handoffComplete": (active_task or {}).get("handoffComplete"),
+                "handoffMissingFields": (active_task or {}).get("handoffMissingFields", []),
             }
             worker_rows.append(row)
 
@@ -1097,8 +1102,19 @@ class BoardCollector:
             enriched_members.append(
                 {
                     "name": worker_name,
+                    "memberId": f"runtime-observed-member:{worker_name}",
                     "agentId": f"runtime-observed:{worker_name}",
                     "agentType": "worker",
+                    "memberNickname": worker_name,
+                    "memberDisplayName": worker_name,
+                    "memberRole": "worker",
+                    "preferredSessionKey": worker_name,
+                    "sessionRouting": {
+                        "preferredSessionKey": worker_name,
+                        "durableAuthority": "id_session_key",
+                        "liveNoticeEnabled": False,
+                    },
+                    "externalChannel": None,
                     "joinedAt": "",
                     "inboxCount": 0,
                     "alive": is_agent_alive(team_name, worker_name),
@@ -1135,13 +1151,25 @@ class BoardCollector:
             workers.append(
                 {
                     "name": member["name"],
+                    "memberId": member.get("memberId"),
+                    "memberNickname": member.get("memberNickname") or member["name"],
+                    "memberDisplayName": member.get("memberDisplayName") or member.get("memberNickname") or member["name"],
+                    "memberRole": member.get("memberRole") or member.get("agentType"),
                     "agentId": member["agentId"],
                     "agentType": member["agentType"],
+                    "preferredSessionKey": member.get("preferredSessionKey", ""),
+                    "sessionRouting": member.get("sessionRouting", {}),
+                    "externalChannel": member.get("externalChannel"),
                     "alive": member["alive"],
                     "processState": process_state,
                     "health": callback_row.get("health", "degraded" if process_state == "unknown" else "healthy"),
                     "progressState": callback_row.get("progressState", "idle"),
                     "callbackState": callback_row.get("callbackState", "not_started"),
+                    "taskLifecyclePhase": callback_row.get("taskLifecyclePhase"),
+                    "callbackLifecyclePhase": callback_row.get("callbackLifecyclePhase"),
+                    "reviewLifecyclePhase": callback_row.get("reviewLifecyclePhase"),
+                    "handoffComplete": callback_row.get("handoffComplete"),
+                    "handoffMissingFields": callback_row.get("handoffMissingFields", []),
                     "faultState": callback_row.get("faultState", "none"),
                     "faultCount": callback_row.get("faultCount", 0),
                     "faultProvenance": callback_row.get("faultProvenance", ""),
@@ -1227,8 +1255,15 @@ class BoardCollector:
             alive = is_agent_alive(team_name, m.name)
             entry = {
                 "name": m.name,
+                "memberId": m.member_id,
                 "agentId": m.agent_id,
                 "agentType": m.agent_type,
+                "memberNickname": m.member_nickname,
+                "memberDisplayName": m.member_display_name,
+                "memberRole": m.member_role,
+                "preferredSessionKey": m.preferred_session_key,
+                "sessionRouting": m.session_routing,
+                "externalChannel": m.external_channel,
                 "joinedAt": m.joined_at,
                 "inboxCount": mailbox.peek_count(inbox_name),
                 "alive": alive,
@@ -1303,6 +1338,10 @@ class BoardCollector:
                 "description": config.description,
                 "leadAgentId": config.lead_agent_id,
                 "leaderName": leader_name,
+                "teamProfileId": config.team_profile_id,
+                "productKey": config.product_key,
+                "teamReusePolicy": config.team_reuse_policy.value,
+                "sessionBridgeMode": config.session_bridge_mode,
                 "createdAt": config.created_at,
                 "budgetCents": config.budget_cents,
             },
@@ -1329,6 +1368,8 @@ class BoardCollector:
                 result.append(
                     {
                         "name": name,
+                        "productKey": data["team"].get("productKey", name),
+                        "teamProfileId": data["team"].get("teamProfileId", ""),
                         "description": meta.get("description", ""),
                         "leader": leader,
                         "members": len(data["members"]),
@@ -1343,6 +1384,8 @@ class BoardCollector:
                 result.append(
                     {
                         "name": name,
+                        "productKey": meta.get("productKey", name),
+                        "teamProfileId": meta.get("teamProfileId", ""),
                         "description": meta.get("description", ""),
                         "leader": "",
                         "members": meta.get("memberCount", 0),

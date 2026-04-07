@@ -16,8 +16,11 @@ class TestCreateTeam:
         )
         assert cfg.name == team_name
         assert cfg.lead_agent_id == "abc123"
+        assert cfg.product_key == team_name
+        assert cfg.team_profile_id
         assert len(cfg.members) == 1
         assert cfg.members[0].name == "lead"
+        assert cfg.members[0].member_nickname == "lead"
         assert cfg.members[0].agent_type == "leader"
 
     def test_create_sets_up_directories(self, team_name):
@@ -59,9 +62,17 @@ class TestAddMember:
         member = TeamManager.add_member(team_name, "worker", agent_id="2")
         assert member.name == "worker"
         assert member.agent_type == "general-purpose"
+        assert member.member_nickname == "worker"
+        assert member.member_role == "general-purpose"
 
         cfg = TeamManager.get_team(team_name)
         assert len(cfg.members) == 2
+
+    def test_add_member_rejects_duplicate_nickname(self, team_name):
+        TeamManager.create_team(name=team_name, leader_name="lead", leader_id="1")
+        TeamManager.add_member(team_name, "worker-1", agent_id="2", member_nickname="engineer")
+        with pytest.raises(ValueError, match="Nickname 'engineer' already exists"):
+            TeamManager.add_member(team_name, "worker-2", agent_id="3", member_nickname="engineer")
 
     def test_add_member_creates_inbox(self, team_name):
         TeamManager.create_team(name=team_name, leader_name="lead", leader_id="1")
@@ -100,6 +111,13 @@ class TestRemoveMember:
 
     def test_remove_from_nonexistent_team(self):
         assert TeamManager.remove_member("nope", "anyone") is False
+
+    def test_remove_member_refuses_ambiguous_name_without_user(self, team_name):
+        TeamManager.create_team(name=team_name, leader_name="lead", leader_id="1")
+        TeamManager.add_member(team_name, "worker", agent_id="2", user="alice", member_nickname="worker-alice")
+        TeamManager.add_member(team_name, "worker", agent_id="3", user="bob", member_nickname="worker-bob")
+        assert TeamManager.remove_member(team_name, "worker") is False
+        assert TeamManager.remove_member(team_name, "worker", user="alice") is True
 
 
 class TestListMembers:
@@ -184,6 +202,7 @@ class TestCleanup:
             data / "runtime-console" / "callbacks" / team_name,
             data / "runtime-console" / "faults" / team_name,
             data / "runtime-console" / "timeline" / team_name,
+            data / "runtime-console" / "session-bridge" / team_name,
             data / "workspaces" / team_name,
         ]
         for directory in dirs:
@@ -198,3 +217,63 @@ class TestCleanup:
 
     def test_cleanup_nonexistent_team(self):
         assert TeamManager.cleanup("never-existed") is False
+
+
+class TestUpdateMemberProfile:
+    def test_update_member_profile_rejects_nickname_conflict_for_same_name_different_user(self, team_name):
+        TeamManager.create_team(name=team_name, leader_name="lead", leader_id="1")
+        TeamManager.add_member(team_name, "worker", agent_id="2", user="alice", member_nickname="alice-nick")
+        TeamManager.add_member(team_name, "worker", agent_id="3", user="bob", member_nickname="bob-nick")
+
+        with pytest.raises(ValueError, match="Nickname 'alice-nick' already exists"):
+            TeamManager.update_member_profile(
+                team_name,
+                "worker",
+                user="bob",
+                member_nickname="alice-nick",
+            )
+
+    def test_update_member_profile_syncs_routing_preferred_session_key(self, team_name):
+        TeamManager.create_team(name=team_name, leader_name="lead", leader_id="1")
+        TeamManager.add_member(
+            team_name,
+            "worker",
+            agent_id="2",
+            user="alice",
+            preferred_session_key="session://old",
+            session_routing={
+                "preferredSessionKey": "session://old",
+                "durableAuthority": "id_session_key",
+                "liveNoticeEnabled": False,
+                "custom": "keep",
+            },
+        )
+
+        updated = TeamManager.update_member_profile(
+            team_name,
+            "worker",
+            user="alice",
+            preferred_session_key="session://new",
+        )
+        assert updated is not None
+        assert updated.preferred_session_key == "session://new"
+        assert updated.session_routing["preferredSessionKey"] == "session://new"
+        assert updated.session_routing["custom"] == "keep"
+
+    def test_update_member_profile_returns_none_when_name_ambiguous_without_user(self, team_name):
+        TeamManager.create_team(name=team_name, leader_name="lead", leader_id="1")
+        TeamManager.add_member(team_name, "worker", agent_id="2", user="alice", member_nickname="alice-worker")
+        TeamManager.add_member(team_name, "worker", agent_id="3", user="bob", member_nickname="bob-worker")
+
+        updated = TeamManager.update_member_profile(
+            team_name,
+            "worker",
+            member_role="backend",
+        )
+
+        assert updated is None
+        members = TeamManager.list_members(team_name)
+        alice = next(member for member in members if member.user == "alice" and member.name == "worker")
+        bob = next(member for member in members if member.user == "bob" and member.name == "worker")
+        assert alice.member_role != "backend"
+        assert bob.member_role != "backend"

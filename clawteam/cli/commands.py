@@ -249,6 +249,13 @@ def team_spawn_team(
     description: str = typer.Option("", "--description", "-d", help="Team description"),
     agent_name: str = typer.Option("leader", "--agent-name", "-n", help="Leader agent name"),
     agent_type: str = typer.Option("leader", "--agent-type", help="Leader agent type"),
+    product_key: str = typer.Option("", "--product-key", help="Stable product key for reusable team profile"),
+    team_profile_id: str = typer.Option("", "--team-profile-id", help="Stable team profile id (auto if omitted)"),
+    team_reuse_policy: str = typer.Option(
+        "reuse_existing",
+        "--team-reuse-policy",
+        help="Team reuse policy: reuse_existing | recreate_on_demand | fixed_profile",
+    ),
 ):
     """Create a new team and register the leader (spawnTeam)."""
     from clawteam.identity import AgentIdentity
@@ -259,24 +266,32 @@ def team_spawn_team(
     leader_name = agent_name or identity.agent_name
 
     try:
-        TeamManager.create_team(
+        created = TeamManager.create_team(
             name=name,
             leader_name=leader_name,
             leader_id=leader_id,
             description=description,
             user=identity.user,
+            product_key=product_key,
+            team_profile_id=team_profile_id,
+            team_reuse_policy=team_reuse_policy,
+            leader_role=agent_type or "leader",
         )
         result = {
             "status": "created",
             "team": name,
             "leadAgentId": leader_id,
             "leaderName": leader_name,
+            "teamProfileId": created.team_profile_id,
+            "productKey": created.product_key,
+            "teamReusePolicy": created.team_reuse_policy.value,
         }
         if identity.user:
             result["user"] = identity.user
         _output(result, lambda d: (
             console.print(f"[green]OK[/green] Team '{name}' created"),
             console.print(f"  Leader: {leader_name} (id: {leader_id})"),
+            console.print(f"  Profile: {d['teamProfileId']}  Product: {d['productKey']}  Reuse: {d['teamReusePolicy']}"),
         ))
     except ValueError as e:
         if _json_output:
@@ -299,10 +314,18 @@ def team_discover():
             return
         table = Table(title="Teams")
         table.add_column("Name", style="cyan")
+        table.add_column("Product", style="magenta")
+        table.add_column("Profile", style="dim")
         table.add_column("Description")
         table.add_column("Members", justify="right")
         for t in data:
-            table.add_row(t["name"], t["description"], str(t["memberCount"]))
+            table.add_row(
+                t["name"],
+                t.get("productKey", t["name"]),
+                t.get("teamProfileId", "-"),
+                t["description"],
+                str(t["memberCount"]),
+            )
         console.print(table)
 
     _output(teams, _human)
@@ -589,6 +612,9 @@ def team_status(
         "name": config.name,
         "description": config.description,
         "leadAgentId": config.lead_agent_id,
+        "teamProfileId": config.team_profile_id,
+        "productKey": config.product_key,
+        "teamReusePolicy": config.team_reuse_policy.value,
         "createdAt": config.created_at,
         "members": [
             {
@@ -603,18 +629,27 @@ def team_status(
         console.print(f"\nTeam: [cyan]{d['name']}[/cyan]")
         if d['description']:
             console.print(f"  {d['description']}")
+        console.print(f"  Product: {d.get('productKey') or d['name']}")
+        console.print(f"  Profile: {d.get('teamProfileId') or '-'}  Reuse: {d.get('teamReusePolicy') or '-'}")
         console.print(f"  Created: {d['createdAt'][:19]}")
         has_user = any(m.get("user") for m in d["members"])
         table = Table(title="Members")
         table.add_column("Name", style="cyan")
+        table.add_column("Nickname", style="magenta")
+        table.add_column("Role")
         if has_user:
             table.add_column("User", style="magenta")
         table.add_column("ID", style="dim")
         table.add_column("Type")
+        table.add_column("Session Key", style="dim")
         table.add_column("Alive")
         table.add_column("Joined", style="dim")
         for m in d["members"]:
-            row = [m.get("name", "")]
+            row = [
+                m.get("name", ""),
+                m.get("memberNickname") or m.get("name", ""),
+                m.get("memberRole") or m.get("agentType", ""),
+            ]
             if has_user:
                 row.append(m.get("user", ""))
             alive = m.get("alive")
@@ -622,6 +657,7 @@ def team_status(
             row.extend([
                 m.get("agentId", ""),
                 m.get("agentType", ""),
+                m.get("preferredSessionKey", ""),
                 alive_label,
                 (m.get("joinedAt") or "")[:19],
             ])
@@ -629,6 +665,45 @@ def team_status(
         console.print(table)
 
     _output(data, _human)
+
+
+@team_app.command("update-member")
+def team_update_member(
+    team: str = typer.Argument(..., help="Team name"),
+    member_name: str = typer.Argument(..., help="Machine-facing member name"),
+    user: str = typer.Option("", "--user", help="Optional user namespace"),
+    nickname: Optional[str] = typer.Option(None, "--nickname", help="Human-facing nickname"),
+    display_name: Optional[str] = typer.Option(None, "--display-name", help="Human-facing display name"),
+    role: Optional[str] = typer.Option(None, "--role", help="Human-facing role label"),
+    preferred_session_key: Optional[str] = typer.Option(None, "--preferred-session-key", help="Stable preferred session key"),
+    external_channel: Optional[str] = typer.Option(None, "--external-channel", help="Optional bound channel/thread id"),
+):
+    """Update human-facing member profile fields without changing machine identity."""
+    from clawteam.team.manager import TeamManager
+
+    member = TeamManager.update_member_profile(
+        team,
+        member_name,
+        user=user,
+        member_nickname=nickname,
+        member_display_name=display_name,
+        member_role=role,
+        preferred_session_key=preferred_session_key,
+        external_channel=external_channel,
+    )
+    if member is None:
+        _output(
+            {"error": f"Member '{member_name}' not found in team '{team}'."},
+            lambda d: console.print(f"[red]{d['error']}[/red]"),
+        )
+        raise typer.Exit(1)
+    _output(
+        _dump(member),
+        lambda d: console.print(
+            f"[green]OK[/green] Updated member '{member_name}' "
+            f"(nickname={d.get('memberNickname') or member_name}, role={d.get('memberRole') or '-'})"
+        ),
+    )
 
 
 # ============================================================================
@@ -886,6 +961,17 @@ def task_get(
         console.print(f"Task: [cyan]{d['id']}[/cyan]")
         console.print(f"  Subject: {d['subject']}")
         console.print(f"  Status: {d['status']}")
+        console.print(
+            "  Lifecycle: "
+            f"task={d.get('taskLifecyclePhase', '-')}  "
+            f"callback={d.get('callbackLifecyclePhase', '-')}  "
+            f"review={d.get('reviewLifecyclePhase', '-')}"
+        )
+        if d.get("handoffComplete") is not None:
+            console.print(f"  Handoff complete: {'yes' if d.get('handoffComplete') else 'no'}")
+        missing = d.get("handoffMissingFields") or []
+        if missing:
+            console.print(f"  Handoff missing: {', '.join(missing)}")
         if d.get('owner'):
             console.print(f"  Owner: {d['owner']}")
         if d.get('lockedBy'):
@@ -978,6 +1064,9 @@ def task_list(
         table.add_column("ID", style="dim")
         table.add_column("Subject", style="cyan")
         table.add_column("Status")
+        table.add_column("TaskPhase")
+        table.add_column("Callback")
+        table.add_column("Review")
         table.add_column("Owner")
         table.add_column("Lock", style="yellow")
         table.add_column("Blocked By", style="dim")
@@ -988,6 +1077,9 @@ def task_list(
                 t["id"],
                 t["subject"],
                 f"[{style}]{st}[/{style}]" if style else st,
+                t.get("taskLifecyclePhase") or "-",
+                t.get("callbackLifecyclePhase") or "-",
+                t.get("reviewLifecyclePhase") or "-",
                 t.get("owner") or "",
                 t.get("lockedBy") or "",
                 ", ".join(t.get("blockedBy", [])),
@@ -1486,6 +1578,11 @@ def _coding_callback_report_human(data: dict):
         f"task={data.get('taskId') or '-'} decision={data['decision']}"
     )
     console.print(f"Summary: {data['summary']}")
+    if data.get("callbackExpectation"):
+        console.print(f"Callback Expectation: {data['callbackExpectation']}")
+    console.print(f"Handoff Complete: {'yes' if data.get('handoffComplete') else 'no'}")
+    if data.get("handoffMissingFields"):
+        console.print(f"Handoff Missing: {', '.join(data['handoffMissingFields'])}")
     if data.get("nextStep"):
         console.print(f"Next Step: {data['nextStep']}")
     if data.get("escalationReason"):
@@ -1924,11 +2021,22 @@ def coding_callback_report(
     decision: str = typer.Option(..., "--decision", help="Worker decision: continue, report_progress, escalate, complete, blocked"),
     summary: Optional[str] = typer.Option(None, "--summary", help="Callback summary (defaults to normalized result or job summary)"),
     next_step: str = typer.Option("", "--next-step", help="Optional next-step summary"),
+    callback_expectation: str = typer.Option(
+        "team_leader_ack",
+        "--callback-expectation",
+        help="Expected callback closure contract (human-facing)",
+    ),
+    objective: str = typer.Option("", "--objective", help="Handoff objective"),
+    inputs: str = typer.Option("", "--inputs", help="Comma-separated handoff inputs"),
+    outputs: str = typer.Option("", "--outputs", help="Comma-separated handoff outputs"),
+    validation: str = typer.Option("", "--validation", help="Validation/self-test summary"),
+    blockers: str = typer.Option("", "--blockers", help="Comma-separated blockers"),
+    risks: str = typer.Option("", "--risks", help="Comma-separated risks"),
     escalation_reason: Optional[str] = typer.Option(None, "--escalation-reason", help="Required when decision is escalate"),
 ):
     """Persist a worker callback report via the durable coding/runtime-console path."""
     from clawteam.coding import CodingService, TERMINAL_CODING_JOB_STATES
-    from clawteam.team.models import WorkerCodingCallbackReport, WorkerCodingDecision
+    from clawteam.team.models import TaskHandoffContract, WorkerCodingCallbackReport, WorkerCodingDecision
     from clawteam.team.tasks import TaskStore
 
     team_name = _resolve_coding_team(team)
@@ -1966,6 +2074,20 @@ def coding_callback_report(
 
     result = service.store.load_result(team_name, job_id)
     resolved_summary = summary or (result.summary if result else "") or record.summary or f"Callback reported for {job_id}"
+    handoff_contract = TaskHandoffContract(
+        taskIdentity=resolved_task_id,
+        objective=objective or resolved_summary,
+        inputs=[item.strip() for item in inputs.split(",") if item.strip()],
+        outputs=(
+            [item.strip() for item in outputs.split(",") if item.strip()]
+            or sorted((record.artifact_paths or {}).keys())
+        ),
+        validation=validation,
+        blockers=[item.strip() for item in blockers.split(",") if item.strip()],
+        risks=[item.strip() for item in risks.split(",") if item.strip()],
+        recommendedNextStep=next_step,
+        callbackExpectation=callback_expectation,
+    )
     report = WorkerCodingCallbackReport.from_coding_result(
         task_id=resolved_task_id,
         job_id=job_id,
@@ -1978,6 +2100,8 @@ def coding_callback_report(
         summary=resolved_summary,
         artifact_paths=record.artifact_paths,
         next_step=next_step,
+        callback_expectation=callback_expectation,
+        handoff_contract=handoff_contract,
         escalation_reason=escalation_reason,
     )
     try:
@@ -1998,6 +2122,10 @@ def coding_callback_report(
             "decision": report.decision.value,
             "summary": report.summary,
             "nextStep": report.next_step,
+            "callbackExpectation": report.callback_expectation,
+            "handoff": _dump(handoff_contract),
+            "handoffComplete": handoff_contract.is_complete(),
+            "handoffMissingFields": handoff_contract.missing_fields(),
             "escalationReason": report.escalation_reason,
             "callback": _dump(report),
             "task": _dump(updated_task),

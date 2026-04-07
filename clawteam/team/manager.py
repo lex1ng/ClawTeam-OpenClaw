@@ -6,7 +6,7 @@ import json
 import shutil
 from pathlib import Path
 
-from clawteam.team.models import TeamConfig, TeamMember, get_data_dir
+from clawteam.team.models import TeamConfig, TeamMember, TeamReusePolicy, get_data_dir
 from clawteam.team.plan import referenced_legacy_plan_paths, team_plans_path
 
 
@@ -49,6 +49,27 @@ class TeamManager:
     """Manages team lifecycle operations."""
 
     @staticmethod
+    def _nickname_key(nickname: str) -> str:
+        return nickname.strip().casefold()
+
+    @staticmethod
+    def _ensure_unique_nickname(
+        config: TeamConfig,
+        nickname: str,
+        *,
+        ignore_member_id: str | None = None,
+    ) -> None:
+        key = TeamManager._nickname_key(nickname)
+        if not key:
+            return
+        for member in config.members:
+            if ignore_member_id and member.member_id == ignore_member_id:
+                continue
+            existing = TeamManager._nickname_key(member.member_nickname or member.name)
+            if existing == key:
+                raise ValueError(f"Nickname '{nickname}' already exists in team '{config.name}'")
+
+    @staticmethod
     def get_member(
         team_name: str,
         member_name: str,
@@ -68,12 +89,70 @@ class TeamManager:
         return None
 
     @staticmethod
+    def get_member_by_identity(
+        team_name: str,
+        *,
+        member_id: str = "",
+        agent_id: str = "",
+        preferred_session_key: str = "",
+        member_name: str = "",
+        user: str = "",
+    ) -> TeamMember | None:
+        """Resolve one member by machine-facing identity first.
+
+        Resolution order:
+        1) member_id
+        2) agent_id
+        3) preferred_session_key
+        4) member_name (+ user if provided, else only if unique)
+        """
+        config = _load_config(team_name)
+        if not config:
+            return None
+
+        if member_id:
+            matches = [member for member in config.members if member.member_id == member_id]
+            return matches[0] if len(matches) == 1 else None
+
+        if agent_id:
+            matches = [member for member in config.members if member.agent_id == agent_id]
+            return matches[0] if len(matches) == 1 else None
+
+        if preferred_session_key:
+            matches = [
+                member
+                for member in config.members
+                if member.preferred_session_key == preferred_session_key
+            ]
+            return matches[0] if len(matches) == 1 else None
+
+        if member_name:
+            if user:
+                matches = [
+                    member
+                    for member in config.members
+                    if member.name == member_name and member.user == user
+                ]
+                return matches[0] if len(matches) == 1 else None
+            matches = [member for member in config.members if member.name == member_name]
+            return matches[0] if len(matches) == 1 else None
+
+        return None
+
+    @staticmethod
     def create_team(
         name: str,
         leader_name: str,
         leader_id: str,
         description: str = "",
         user: str = "",
+        product_key: str = "",
+        team_profile_id: str = "",
+        team_reuse_policy: TeamReusePolicy | str = TeamReusePolicy.reuse_existing,
+        leader_nickname: str = "",
+        leader_display_name: str = "",
+        leader_role: str = "leader",
+        preferred_session_key: str = "",
     ) -> TeamConfig:
         if _config_path(name).exists():
             raise ValueError(f"Team '{name}' already exists")
@@ -83,11 +162,18 @@ class TeamManager:
             user=user,
             agent_id=leader_id,
             agent_type="leader",
+            memberNickname=leader_nickname or leader_name,
+            memberDisplayName=leader_display_name or leader_nickname or leader_name,
+            memberRole=leader_role or "leader",
+            preferredSessionKey=preferred_session_key or (f"{user}:{leader_name}" if user else leader_name),
         )
         config = TeamConfig(
             name=name,
             description=description,
             lead_agent_id=leader_id,
+            teamProfileId=team_profile_id or f"teamprof-{name}",
+            productKey=product_key or name,
+            teamReusePolicy=team_reuse_policy,
             members=[leader],
         )
         _save_config(config)
@@ -114,6 +200,9 @@ class TeamManager:
                         "name": config.name,
                         "description": config.description,
                         "leadAgentId": config.lead_agent_id,
+                        "teamProfileId": config.team_profile_id,
+                        "productKey": config.product_key,
+                        "teamReusePolicy": config.team_reuse_policy.value,
                         "memberCount": len(config.members),
                     })
         return teams
@@ -129,6 +218,11 @@ class TeamManager:
         agent_id: str,
         agent_type: str = "general-purpose",
         user: str = "",
+        member_nickname: str = "",
+        member_display_name: str = "",
+        member_role: str = "",
+        preferred_session_key: str = "",
+        session_routing: dict | None = None,
     ) -> TeamMember:
         config = _load_config(team_name)
         if not config:
@@ -136,11 +230,22 @@ class TeamManager:
         for m in config.members:
             if m.name == member_name and m.user == user:
                 raise ValueError(f"Agent '{member_name}' (user={user or '(none)'}) already in team")
+        resolved_nickname = member_nickname or member_name
+        TeamManager._ensure_unique_nickname(config, resolved_nickname)
         member = TeamMember(
             name=member_name,
             user=user,
             agent_id=agent_id,
             agent_type=agent_type,
+            memberNickname=resolved_nickname,
+            memberDisplayName=member_display_name or resolved_nickname,
+            memberRole=member_role or agent_type,
+            preferredSessionKey=preferred_session_key or (f"{user}:{member_name}" if user else member_name),
+            sessionRouting=session_routing or {
+                "preferredSessionKey": preferred_session_key or (f"{user}:{member_name}" if user else member_name),
+                "durableAuthority": "id_session_key",
+                "liveNoticeEnabled": False,
+            },
         )
         config.members.append(member)
         _save_config(config)
@@ -150,16 +255,85 @@ class TeamManager:
         return member
 
     @staticmethod
-    def remove_member(team_name: str, member_name: str) -> bool:
+    def remove_member(team_name: str, member_name: str, user: str = "") -> bool:
         config = _load_config(team_name)
         if not config:
             return False
         before = len(config.members)
-        config.members = [m for m in config.members if m.name != member_name]
+        if user:
+            config.members = [
+                member
+                for member in config.members
+                if not (member.name == member_name and member.user == user)
+            ]
+        else:
+            matches = [member for member in config.members if member.name == member_name]
+            if len(matches) != 1:
+                return False
+            target_member_id = matches[0].member_id
+            config.members = [
+                member
+                for member in config.members
+                if member.member_id != target_member_id
+            ]
         if len(config.members) < before:
             _save_config(config)
             return True
         return False
+
+    @staticmethod
+    def update_member_profile(
+        team_name: str,
+        member_name: str,
+        *,
+        user: str = "",
+        member_nickname: str | None = None,
+        member_display_name: str | None = None,
+        member_role: str | None = None,
+        preferred_session_key: str | None = None,
+        session_routing: dict | None = None,
+        external_channel: str | None = None,
+    ) -> TeamMember | None:
+        config = _load_config(team_name)
+        if not config:
+            return None
+        candidates = [
+            (i, member)
+            for i, member in enumerate(config.members)
+            if member.name == member_name and (not user or member.user == user)
+        ]
+        if len(candidates) != 1:
+            return None
+        index, member = candidates[0]
+        updated_fields: dict = {}
+        if member_nickname is not None:
+            TeamManager._ensure_unique_nickname(
+                config,
+                member_nickname,
+                ignore_member_id=member.member_id,
+            )
+            updated_fields["member_nickname"] = member_nickname
+        if member_display_name is not None:
+            updated_fields["member_display_name"] = member_display_name
+        if member_role is not None:
+            updated_fields["member_role"] = member_role
+        if preferred_session_key is not None:
+            updated_fields["preferred_session_key"] = preferred_session_key
+            if session_routing is None:
+                next_routing = dict(member.session_routing or {})
+                next_routing["preferredSessionKey"] = preferred_session_key
+                updated_fields["session_routing"] = next_routing
+        if session_routing is not None:
+            updated_fields["session_routing"] = session_routing
+        if external_channel is not None:
+            updated_fields["external_channel"] = external_channel
+        if not updated_fields:
+            return member
+
+        updated_member = member.model_copy(update=updated_fields)
+        config.members[index] = updated_member
+        _save_config(config)
+        return updated_member
 
     @staticmethod
     def get_leader_name(team_name: str) -> str | None:
@@ -200,6 +374,7 @@ class TeamManager:
             data_dir / "runtime-console" / "callbacks" / team_name,
             data_dir / "runtime-console" / "faults" / team_name,
             data_dir / "runtime-console" / "timeline" / team_name,
+            data_dir / "runtime-console" / "session-bridge" / team_name,
         )
         workspaces_dir = data_dir / "workspaces" / team_name
         cleaned = False

@@ -188,6 +188,11 @@ class RuntimeConsoleService:
             provenance=CallbackProvenance.self_report,
             summary=report.summary,
             nextStep=report.next_step,
+            callbackExpectation=report.callback_expectation,
+            handoffComplete=bool(report.handoff_contract and report.handoff_contract.is_complete()),
+            handoffMissingFields=(
+                report.handoff_contract.missing_fields() if report.handoff_contract is not None else []
+            ),
             escalationReason=report.escalation_reason,
             artifactPaths=report.artifact_paths,
             reportedAt=report.reported_at,

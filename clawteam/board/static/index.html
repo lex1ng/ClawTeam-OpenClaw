@@ -794,10 +794,11 @@ function WorkersPanel({ data, selected, onSelect, query }) {
             onClick={() => onSelect("worker", worker.name, worker)}
           >
             <div className="row-top">
-              <strong>{worker.name}</strong>
+              <strong>{worker.memberNickname || worker.name}</strong>
               <Tone kind={worker.processState || (worker.alive === false ? "ended" : "alive")}>{worker.processState || (worker.alive === false ? "ended" : "alive")}</Tone>
             </div>
             <div className="pill-row">
+              <Tone kind="runtime">{safe(worker.memberRole, worker.agentType || "worker")}</Tone>
               <Tone kind={worker.health || "healthy"}>{worker.health || "healthy"}</Tone>
               <Tone kind={worker.progressState || "idle"}>{worker.progressState || "idle"}</Tone>
               <Tone kind={worker.callbackState || "not_started"}>{worker.callbackState || "not_started"}</Tone>
@@ -806,9 +807,11 @@ function WorkersPanel({ data, selected, onSelect, query }) {
               {worker.faultProvenance ? <Tone kind={worker.faultProvenance}>{worker.faultProvenance}</Tone> : null}
             </div>
             <div className="summary">
+              machine={worker.name} sessionKey={safe(worker.preferredSessionKey, "-")}<br />
               task={safe(worker.currentTaskId, "-")}<br />
               job={safe(worker.currentJobId, "-")}<br />
               session={safe(worker.currentSessionId, "unavailable")}<br />
+              lifecycle task={safe(worker.taskLifecyclePhase, "-")} callback={safe(worker.callbackLifecyclePhase, "-")} review={safe(worker.reviewLifecyclePhase, "-")}<br />
               faultCount={worker.faultCount || 0} waitingFor={safe(worker.waitingFor, "none")}
             </div>
           </div>
@@ -865,8 +868,14 @@ function TasksPanel({ data, selected, onSelect, query }) {
               <div className="summary">
                 latest job={safe(coding.latestJobId, "-")}<br />
                 provider={safe(coding.provider, "-")} decision={safe(coding.decision, "-")}<br />
+                lifecycle task={safe(task.taskLifecyclePhase, "-")} callback={safe(task.callbackLifecyclePhase, "-")} review={safe(task.reviewLifecyclePhase, "-")}<br />
                 {coding.summary || "No coding summary persisted yet."}
               </div>
+              {task.handoffMissingFields && task.handoffMissingFields.length ? (
+                <div className="pill-row">
+                  <Tone kind="blocked">handoff missing {task.handoffMissingFields.join(", ")}</Tone>
+                </div>
+              ) : null}
               {task.blockedBy && task.blockedBy.length ? (
                 <div className="pill-row">
                   <Tone kind="blocked">blocked by {task.blockedBy.join(", ")}</Tone>
@@ -1287,6 +1296,11 @@ function DetailDrawer({ data, selected }) {
           <KeyValue label="Task" value={selected.data.id} />
           <KeyValue label="Subject" value={selected.data.subject} />
           <KeyValue label="Status" value={selected.data.status} />
+          <KeyValue label="Task Lifecycle" value={safe(selected.data.taskLifecyclePhase, "-")} />
+          <KeyValue label="Callback Lifecycle" value={safe(selected.data.callbackLifecyclePhase, "-")} />
+          <KeyValue label="Review Lifecycle" value={safe(selected.data.reviewLifecyclePhase, "-")} />
+          <KeyValue label="Handoff Complete" value={selected.data.handoffComplete ? "yes" : "no"} />
+          <KeyValue label="Handoff Missing" value={(selected.data.handoffMissingFields || []).join(", ") || "-"} />
           <KeyValue label="Owner" value={safe(selected.data.owner, "-")} />
           <KeyValue label="Started" value={safe(selected.data.startedAt, "-")} />
           <KeyValue label="Updated" value={safe(selected.data.updatedAt, "-")} />
@@ -1297,11 +1311,18 @@ function DetailDrawer({ data, selected }) {
       return (
         <div className="kv-grid">
           <KeyValue label="Worker" value={selected.data.name} />
+          <KeyValue label="Nickname" value={safe(selected.data.memberNickname, selected.data.name)} />
+          <KeyValue label="Role" value={safe(selected.data.memberRole, selected.data.agentType || "worker")} />
+          <KeyValue label="Member ID" value={safe(selected.data.memberId, "-")} />
           <KeyValue label="Agent ID" value={selected.data.agentId} />
+          <KeyValue label="Preferred Session Key" value={safe(selected.data.preferredSessionKey, "-")} />
           <KeyValue label="Process State" value={safe(selected.data.processState, selected.data.alive === false ? "ended" : "alive")} />
           <KeyValue label="Health" value={safe(selected.data.health, "healthy")} />
           <KeyValue label="Progress" value={safe(selected.data.progressState, "idle")} />
           <KeyValue label="Callback State" value={safe(selected.data.callbackState, "not_started")} />
+          <KeyValue label="Task Lifecycle" value={safe(selected.data.taskLifecyclePhase, "-")} />
+          <KeyValue label="Callback Lifecycle" value={safe(selected.data.callbackLifecyclePhase, "-")} />
+          <KeyValue label="Review Lifecycle" value={safe(selected.data.reviewLifecyclePhase, "-")} />
           <KeyValue label="Current Task" value={safe(selected.data.currentTaskId, "-")} />
           <KeyValue label="Current Job" value={safe(selected.data.currentJobId, "-")} />
           <KeyValue label="Current Session" value={safe(selected.data.currentSessionId, "unavailable")} />
@@ -1534,6 +1555,7 @@ function Dashboard({ data, selected, onSelect, query, lastRefresh }) {
           <h2 className="hero-title">{data.team.name}</h2>
           <div className="hero-meta">
             leader={safe(data.team.leaderName, "unknown")}<br />
+            product={safe(data.team.productKey, data.team.name)} profile={safe(data.team.teamProfileId, "-")} reuse={safe(data.team.teamReusePolicy, "-")}<br />
             {data.team.description || "No team description was persisted."}<br />
             workers, tasks, coding jobs, provider sessions, callback chain, fault provenance, timeline, and bounded evidence are rendered from durable state.
           </div>

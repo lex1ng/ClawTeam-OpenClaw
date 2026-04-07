@@ -189,6 +189,9 @@ class CallbackReportRecord(BaseModel):
     reported_upward: bool = Field(default=False, alias="reportedUpward")
     summary: str
     next_step: str = Field(default="", alias="nextStep")
+    callback_expectation: str = Field(default="", alias="callbackExpectation")
+    handoff_complete: bool = Field(default=False, alias="handoffComplete")
+    handoff_missing_fields: list[str] = Field(default_factory=list, alias="handoffMissingFields")
     escalation_reason: str | None = Field(default=None, alias="escalationReason")
     artifact_paths: dict[str, str] = Field(default_factory=dict, alias="artifactPaths")
     reported_at: str = Field(default_factory=_now_iso, alias="reportedAt")

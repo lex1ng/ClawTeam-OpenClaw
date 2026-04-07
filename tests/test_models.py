@@ -3,12 +3,17 @@
 import json
 
 from clawteam.team.models import (
+    CallbackLifecyclePhase,
     MemberStatus,
     MessageType,
+    ReviewLifecyclePhase,
+    TaskHandoffContract,
     TaskItem,
+    TaskLifecyclePhase,
     TaskStatus,
     TeamConfig,
     TeamMember,
+    TeamReusePolicy,
     TeamMessage,
     WorkerCodingCallbackReport,
     WorkerCodingDecision,
@@ -58,8 +63,11 @@ class TestTeamMember:
         m = TeamMember(name="lead", agent_type="leader", user="bob")
         data = json.loads(m.model_dump_json(by_alias=True))
         assert data["agentType"] == "leader"
+        assert data["memberNickname"] == "lead"
+        assert data["memberRole"] == "leader"
         restored = TeamMember.model_validate(data)
         assert restored.agent_type == "leader"
+        assert restored.member_nickname == "lead"
 
 
 class TestTeamConfig:
@@ -75,6 +83,11 @@ class TestTeamConfig:
         data = json.loads(cfg.model_dump_json(by_alias=True))
         assert data["leadAgentId"] == "x"
         assert data["budgetCents"] == 500.0
+        assert data["productKey"] == "t"
+
+    def test_team_reuse_policy_default(self):
+        cfg = TeamConfig(name="alpha")
+        assert cfg.team_reuse_policy == TeamReusePolicy.reuse_existing
 
 
 class TestTeamMessage:
@@ -166,3 +179,21 @@ class TestWorkerCodingCallbackReport:
         assert dumped["taskId"] == "task-1"
         assert dumped["jobId"] == "job-1"
         assert "artifacts=" in report.to_leader_summary()
+        assert "handoffContract" in dumped
+
+
+class TestLifecycleModels:
+    def test_task_item_new_lifecycle_defaults(self):
+        item = TaskItem(subject="x")
+        assert item.task_lifecycle_phase == TaskLifecyclePhase.planned
+        assert item.callback_lifecycle_phase == CallbackLifecyclePhase.not_required
+        assert item.review_lifecycle_phase == ReviewLifecyclePhase.not_started
+        assert item.handoff_complete is False
+        assert item.handoff_missing_fields == []
+
+    def test_handoff_contract_reports_missing_fields(self):
+        handoff = TaskHandoffContract(taskIdentity="task-1", objective="x")
+        missing = handoff.missing_fields()
+        assert "inputs" in missing
+        assert "outputs" in missing
+        assert handoff.is_complete() is False

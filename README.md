@@ -627,10 +627,16 @@ All state lives in `~/.clawteam/` as JSON files. No database, no server. Atomic 
 
 ```bash
 # Team lifecycle
-clawteam team spawn-team <team> -d "description" -n <leader>
+clawteam team spawn-team <team> -d "description" -n <leader> --product-key <product>
 clawteam team discover                    # List all teams
-clawteam team status <team>               # Show members
+clawteam team status <team>               # Show members (machine id + nickname/role/session key)
+clawteam team update-member <team> <member> --nickname <name> --role <role>
 clawteam team cleanup <team> --force      # Delete team
+
+# Identity precision notes
+# - If multiple members share the same <member> name across different users,
+#   team update-member must include --user for disambiguation.
+# - Identity-sensitive member operations do not guess under ambiguity.
 
 # Spawn agents
 clawteam spawn --team <team> --agent-name <name> --task "do this"
@@ -679,6 +685,14 @@ clawteam coding session list --team <team>
 clawteam coding session show <session-id> --team <team>
 clawteam coding session jobs <session-id> --team <team>
 clawteam coding session events <session-id> --team <team>
+clawteam coding callback-report <job-id> --team <team> --decision report_progress \
+  --objective "..." --inputs a,b --outputs x,y --validation "pytest -q" \
+  --blockers none --risks low --callback-expectation team_leader_ack
+
+# Session bridge fail-safe note
+# - Session bridge notices are best-effort acceleration metadata only.
+# - If machine identity is insufficient (for example worker_id missing and
+#   worker name ambiguous), notice emission is skipped instead of guessing.
 
 # Explicit faults and unified runtime timeline
 clawteam faults list --team <team>
