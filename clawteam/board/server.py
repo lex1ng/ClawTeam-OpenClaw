@@ -136,8 +136,22 @@ class BoardHandler(BaseHTTPRequestHandler):
                 self._serve_json(self.collector.collect_provider_session_events(team_name, route[2]))
             elif route == ["callbacks"]:
                 self._serve_json(self.collector.collect_callbacks(team_name))
+            elif route == ["callback-chain"]:
+                self._serve_json(self.collector.collect_callback_chain(team_name))
+            elif route == ["escalations"]:
+                self._serve_json(self.collector.collect_escalations(team_name))
             elif route == ["faults"]:
                 self._serve_json(self.collector.collect_faults(team_name))
+            elif route == ["evidence"]:
+                self._serve_json(self.collector.collect_evidence(team_name))
+            elif len(route) == 2 and route[0] == "evidence":
+                self._serve_json(self.collector.collect_evidence_detail(team_name, route[1]))
+            elif len(route) == 3 and route[0] == "workers" and route[2] == "evidence":
+                self._serve_json(self.collector.collect_worker_evidence(team_name, route[1]))
+            elif len(route) == 3 and route[0] == "workers" and route[2] == "callbacks":
+                self._serve_json(self.collector.collect_worker_callbacks(team_name, route[1]))
+            elif len(route) == 3 and route[0] == "workers" and route[2] == "faults":
+                self._serve_json(self.collector.collect_worker_faults(team_name, route[1]))
             elif route == ["timeline"]:
                 self._serve_json(self.collector.collect_timeline(team_name))
             else:

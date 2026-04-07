@@ -7,11 +7,15 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 from clawteam.runtime_console.models import (
+    CallbackLevel,
+    CallbackProvenance,
     CallbackReportRecord,
     CallbackStatusValue,
     ProviderSessionRecord,
     ProviderSessionMode,
     ProviderSessionState,
+    RuntimeEvidenceRecord,
+    RuntimeEvidenceType,
     RuntimeFaultRecord,
     RuntimeFaultScopeType,
     RuntimeFaultSeverity,
@@ -38,6 +42,10 @@ def _new_timeline_event_id() -> str:
 
 def _new_fault_id() -> str:
     return f"rtfault-{uuid.uuid4().hex[:12]}"
+
+
+def _new_evidence_id() -> str:
+    return f"rtevd-{uuid.uuid4().hex[:12]}"
 
 
 class RuntimeConsoleService:
@@ -174,6 +182,10 @@ class RuntimeConsoleService:
             provider=report.provider,
             status=report.status,
             decision=report.decision.value,
+            callbackLevel=CallbackLevel.worker,
+            upwardTarget="team_leader",
+            chainStatus=self._worker_chain_status_for_decision(report.decision),
+            provenance=CallbackProvenance.self_report,
             summary=report.summary,
             nextStep=report.next_step,
             escalationReason=report.escalation_reason,
@@ -252,6 +264,10 @@ class RuntimeConsoleService:
         scope_id: str,
         message: str,
         detail: str = "",
+        provenance: CallbackProvenance = CallbackProvenance.runtime,
+        reported_upward: bool = False,
+        escalation_target: str | None = None,
+        escalation_status: str | None = None,
         suggested_action: str = "",
     ) -> RuntimeFaultRecord:
         fault = RuntimeFaultRecord(
@@ -263,6 +279,10 @@ class RuntimeConsoleService:
             teamName=team_name,
             message=message,
             detail=detail,
+            provenance=provenance,
+            reportedUpward=reported_upward,
+            escalationTarget=escalation_target,
+            escalationStatus=escalation_status,
             suggestedAction=suggested_action,
         )
         self.store.save_fault(fault)
@@ -284,6 +304,51 @@ class RuntimeConsoleService:
             ),
         )
         return fault
+
+    def record_evidence(
+        self,
+        *,
+        team_name: str,
+        evidence_type: RuntimeEvidenceType,
+        source_type: str,
+        source_id: str,
+        excerpt: str,
+        max_chars: int,
+        label: str = "",
+        worker_name: str | None = None,
+        task_id: str | None = None,
+        job_id: str | None = None,
+        session_id: str | None = None,
+        fault_id: str | None = None,
+        callback_job_id: str | None = None,
+        path: str | None = None,
+        unavailable_reason: str | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> RuntimeEvidenceRecord:
+        truncated_excerpt = excerpt[:max_chars]
+        evidence = RuntimeEvidenceRecord(
+            evidenceId=_new_evidence_id(),
+            teamName=team_name,
+            evidenceType=evidence_type,
+            sourceType=source_type,
+            sourceId=source_id,
+            workerName=worker_name,
+            taskId=task_id,
+            jobId=job_id,
+            sessionId=session_id,
+            faultId=fault_id,
+            callbackJobId=callback_job_id,
+            label=label,
+            path=path,
+            excerpt=truncated_excerpt,
+            excerptBytes=len(truncated_excerpt.encode("utf-8")),
+            maxChars=max_chars,
+            truncated=len(excerpt) > max_chars,
+            unavailableReason=unavailable_reason,
+            metadata=metadata or {},
+        )
+        self.store.save_evidence(evidence)
+        return evidence
 
     def list_provider_sessions(self, team_name: str) -> list[ProviderSessionRecord]:
         return self.store.list_provider_sessions(team_name)
@@ -429,5 +494,15 @@ class RuntimeConsoleService:
             WorkerCodingDecision.escalate: CallbackStatusValue.escalated_to_leader,
             WorkerCodingDecision.complete: CallbackStatusValue.closed,
             WorkerCodingDecision.blocked: CallbackStatusValue.blocked_waiting_decision,
+        }
+        return mapping[decision]
+
+    def _worker_chain_status_for_decision(self, decision: WorkerCodingDecision) -> str:
+        mapping = {
+            WorkerCodingDecision.continue_: "in_progress",
+            WorkerCodingDecision.report_progress: "reported",
+            WorkerCodingDecision.escalate: "escalated",
+            WorkerCodingDecision.complete: "reported",
+            WorkerCodingDecision.blocked: "blocked",
         }
         return mapping[decision]

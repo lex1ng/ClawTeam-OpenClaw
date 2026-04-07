@@ -17,6 +17,7 @@ from clawteam.runtime_console.models import (
     CallbackReportRecord,
     ProviderSessionRecord,
     RUNTIME_CONSOLE_SCHEMA_VERSION,
+    RuntimeEvidenceRecord,
     RuntimeFaultRecord,
     RuntimeTimelineEvent,
 )
@@ -103,6 +104,7 @@ class RuntimeConsoleStoreAggregateReadError(RuntimeConsoleStoreReadError):
     def to_faults(self) -> list[dict[str, Any]]:
         return [error.to_dict() for error in self.errors]
 
+
 def _runtime_root() -> Path:
     root = get_data_dir() / "runtime-console"
     root.mkdir(parents=True, exist_ok=True)
@@ -129,6 +131,12 @@ def _faults_root(team_name: str) -> Path:
 
 def _timeline_root(team_name: str) -> Path:
     root = _runtime_root() / "timeline" / team_name
+    root.mkdir(parents=True, exist_ok=True)
+    return root
+
+
+def _evidence_root(team_name: str) -> Path:
+    root = _runtime_root() / "evidence" / team_name
     root.mkdir(parents=True, exist_ok=True)
     return root
 
@@ -171,6 +179,9 @@ class RuntimeConsoleStore:
 
     def fault_path(self, team_name: str, fault_id: str) -> Path:
         return _faults_root(team_name) / f"{fault_id}.json"
+
+    def evidence_path(self, team_name: str, evidence_id: str) -> Path:
+        return _evidence_root(team_name) / f"{evidence_id}.json"
 
     def save_provider_session(self, record: ProviderSessionRecord) -> ProviderSessionRecord:
         with self._write_lock(record.team_name):
@@ -347,6 +358,53 @@ class RuntimeConsoleStore:
         )
         return records, [error.to_dict() for error in errors]
 
+    def save_evidence(self, record: RuntimeEvidenceRecord) -> RuntimeEvidenceRecord:
+        with self._write_lock(record.team_name):
+            _atomic_write_text(
+                self.evidence_path(record.team_name, record.evidence_id),
+                record.model_dump_json(indent=2, by_alias=True, exclude_none=True),
+            )
+        return record
+
+    def get_evidence(self, team_name: str, evidence_id: str) -> RuntimeEvidenceRecord | None:
+        path = self.evidence_path(team_name, evidence_id)
+        if not path.exists():
+            return None
+        return self._load_model(
+            path,
+            RuntimeEvidenceRecord,
+            record_kind="evidence",
+            team_name=team_name,
+        )
+
+    def list_evidence(self, team_name: str) -> list[RuntimeEvidenceRecord]:
+        records, errors = self._inspect_models(
+            _evidence_root(team_name).glob("*.json"),
+            RuntimeEvidenceRecord,
+            record_kind="evidence",
+            team_name=team_name,
+        )
+        if errors:
+            raise RuntimeConsoleStoreAggregateReadError(
+                record_kind="evidence",
+                team_name=team_name,
+                errors=errors,
+                records=records,
+            )
+        return records
+
+    def inspect_evidence(
+        self,
+        team_name: str,
+    ) -> tuple[list[RuntimeEvidenceRecord], list[dict[str, Any]]]:
+        records, errors = self._inspect_models(
+            _evidence_root(team_name).glob("*.json"),
+            RuntimeEvidenceRecord,
+            record_kind="evidence",
+            team_name=team_name,
+        )
+        return records, [error.to_dict() for error in errors]
+
     def storage_roots(self, team_name: str) -> dict[str, str]:
         root = _runtime_root()
         return {
@@ -354,6 +412,7 @@ class RuntimeConsoleStore:
             "callbacksRoot": str(root / "callbacks" / team_name),
             "faultsRoot": str(root / "faults" / team_name),
             "timelineRoot": str(root / "timeline" / team_name),
+            "evidenceRoot": str(root / "evidence" / team_name),
         }
 
     def _load_model(

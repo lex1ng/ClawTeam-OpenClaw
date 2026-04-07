@@ -88,6 +88,7 @@ class BoardRenderer:
         tasks = data["tasks"]
         summary = data["taskSummary"]
         coding = data.get("coding", {})
+        runtime = data.get("runtimeConsole", {})
 
         parts = []
 
@@ -141,7 +142,11 @@ class BoardRenderer:
         # 4. Explicit fault surfaces
         parts.append(self._build_fault_surfaces_panel(data))
 
-        # 5. Task board (4-column kanban)
+        # 5. Callback operator semantics
+        parts.append(self._build_callback_chain_panel(runtime))
+        parts.append(self._build_evidence_panel(runtime))
+
+        # 6. Task board (4-column kanban)
         parts.append(self._build_task_kanban(tasks, summary))
 
         return Group(*parts)
@@ -224,6 +229,64 @@ class BoardRenderer:
         lines.append("")
         lines.append("[dim]Healthy records continue to render; unreadable or corrupted records remain explicit.[/dim]")
         return Panel("\n".join(lines), title="Fault Surfaces", border_style="yellow")
+
+    def _build_callback_chain_panel(self, runtime: dict) -> Panel:
+        callback_chain = runtime.get("callbackChain", {})
+        workers = callback_chain.get("workers", [])
+        team_row = callback_chain.get("team", {})
+        lines = []
+        if not workers and not team_row:
+            lines.append("[dim]No callback chain records yet[/dim]")
+        else:
+            for row in workers[:8]:
+                lines.append(
+                    f"[bold]{row.get('workerName', '-')}[/bold] -> team_leader  "
+                    f"state={row.get('callbackState', '-')}  "
+                    f"health={row.get('health', '-')}  "
+                    f"progress={row.get('progressState', '-')}  "
+                    f"wait={row.get('waitingFor', '-')}"
+                )
+            if team_row:
+                lines.append("")
+                lines.append(
+                    "team_leader -> main_leader  "
+                    f"state={team_row.get('callbackState', '-')}  "
+                    f"workers={team_row.get('workersReported', 0)}/{team_row.get('workersTotal', 0)}  "
+                    f"pending={team_row.get('workersPending', 0)}  "
+                    f"faulted={team_row.get('workersFaulted', 0)}"
+                )
+        return Panel(
+            "\n".join(lines),
+            title="Callback Flow (Durable State)",
+            border_style="cyan",
+        )
+
+    def _build_evidence_panel(self, runtime: dict) -> Panel:
+        evidence = runtime.get("evidence", {})
+        records = evidence.get("records", [])
+        summary = evidence.get("summary", {})
+        lines = [
+            "[dim]Evidence is non-authoritative; durable state remains source of truth.[/dim]",
+            (
+                f"total={summary.get('total', len(records))}  "
+                f"truncated={summary.get('truncated', 0)}  "
+                f"unavailable={summary.get('unavailable', 0)}"
+            ),
+            "",
+        ]
+        if not records:
+            lines.append("[dim]No bounded evidence records yet[/dim]")
+        else:
+            for record in records[:6]:
+                lines.append(
+                    f"{record.get('evidenceType', '-')}  "
+                    f"source={record.get('sourceType', '-')}/{record.get('sourceId', '-')}  "
+                    f"worker={record.get('workerName', '-') or '-'}  "
+                    f"truncated={'yes' if record.get('truncated') else 'no'}"
+                )
+                if record.get("unavailableReason"):
+                    lines.append(f"  unavailable={record['unavailableReason']}")
+        return Panel("\n".join(lines), title="Bounded Evidence View", border_style="blue")
 
     def _fault_scope_label(self, fault: dict) -> str:
         if fault.get("scopeType"):

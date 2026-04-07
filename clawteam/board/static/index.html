@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>ClawTeam Runtime Console</title>
+<title>ClawTeam Callback Operator Board</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23071016'/%3E%3Cpath d='M16 22h32v6H22v8h20v6H22v8h26v6H16z' fill='%23f7c66f'/%3E%3C/svg%3E">
 <style>
   :root {
@@ -181,7 +181,7 @@
 
   .health-grid {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(7, minmax(0, 1fr));
     gap: 12px;
     margin-bottom: 18px;
   }
@@ -542,12 +542,12 @@
 </head>
 <body>
 <div class="runtime-notice">
-  Runtime Console renders durable state only. Provider session metadata that is not persisted is shown as <strong>ephemeral</strong> or <strong>unavailable</strong>, never guessed.
+  Callback Operator Board renders durable state only. <strong>Live Evidence</strong> and <strong>Snapshot Evidence</strong> are bounded, non-authoritative, and never promoted to business truth.
 </div>
 <div id="root"></div>
 <script type="text/babel">
 const { useEffect, useMemo, useRef, useState } = React;
-const { artifactPreviewRoute, resolveSelection } = window.RuntimeConsoleHelpers;
+const { artifactPreviewRoute, evidenceDetailRoute, resolveSelection } = window.RuntimeConsoleHelpers;
 
 function safe(value, fallback = "unavailable") {
   if (value === null || value === undefined || value === "") {
@@ -576,6 +576,23 @@ function toneStyle(kind) {
     callback_pending: { background: "rgba(247, 198, 111, 0.14)", color: "var(--accent)", borderColor: "rgba(247, 198, 111, 0.22)" },
     warning: { background: "rgba(251, 146, 60, 0.16)", color: "var(--orange)", borderColor: "rgba(251, 146, 60, 0.24)" },
     critical: { background: "rgba(249, 115, 115, 0.14)", color: "var(--red)", borderColor: "rgba(249, 115, 115, 0.24)" },
+    healthy: { background: "rgba(110, 231, 183, 0.14)", color: "var(--green)", borderColor: "rgba(110, 231, 183, 0.22)" },
+    degraded: { background: "rgba(251, 146, 60, 0.16)", color: "var(--orange)", borderColor: "rgba(251, 146, 60, 0.24)" },
+    stalled: { background: "rgba(251, 146, 60, 0.18)", color: "var(--orange)", borderColor: "rgba(251, 146, 60, 0.28)" },
+    faulted: { background: "rgba(249, 115, 115, 0.14)", color: "var(--red)", borderColor: "rgba(249, 115, 115, 0.24)" },
+    alive: { background: "rgba(110, 231, 183, 0.14)", color: "var(--green)", borderColor: "rgba(110, 231, 183, 0.22)" },
+    ended: { background: "rgba(249, 115, 115, 0.14)", color: "var(--red)", borderColor: "rgba(249, 115, 115, 0.24)" },
+    unknown: { background: "rgba(157, 178, 190, 0.14)", color: "var(--muted)", borderColor: "rgba(150, 193, 214, 0.2)" },
+    waiting_callback: { background: "rgba(247, 198, 111, 0.14)", color: "var(--accent)", borderColor: "rgba(247, 198, 111, 0.22)" },
+    waiting_aggregate: { background: "rgba(247, 198, 111, 0.14)", color: "var(--accent)", borderColor: "rgba(247, 198, 111, 0.22)" },
+    reported_upward: { background: "rgba(110, 231, 183, 0.14)", color: "var(--green)", borderColor: "rgba(110, 231, 183, 0.22)" },
+    in_progress: { background: "rgba(96, 165, 250, 0.14)", color: "var(--blue)", borderColor: "rgba(96, 165, 250, 0.22)" },
+    reported: { background: "rgba(110, 231, 183, 0.14)", color: "var(--green)", borderColor: "rgba(110, 231, 183, 0.22)" },
+    escalated: { background: "rgba(249, 115, 115, 0.14)", color: "var(--red)", borderColor: "rgba(249, 115, 115, 0.24)" },
+    hook: { background: "rgba(96, 165, 250, 0.14)", color: "var(--blue)", borderColor: "rgba(96, 165, 250, 0.24)" },
+    watchdog: { background: "rgba(251, 146, 60, 0.16)", color: "var(--orange)", borderColor: "rgba(251, 146, 60, 0.24)" },
+    "self-report": { background: "rgba(125, 211, 252, 0.14)", color: "var(--accent-2)", borderColor: "rgba(125, 211, 252, 0.22)" },
+    "read-fault": { background: "rgba(249, 115, 115, 0.16)", color: "var(--red)", borderColor: "rgba(249, 115, 115, 0.26)" },
   };
   return map[kind] || { background: "rgba(157, 178, 190, 0.12)", color: "var(--muted)", borderColor: "rgba(150, 193, 214, 0.16)" };
 }
@@ -603,15 +620,18 @@ function buildHealthCards(data) {
   const jobSummary = runtime.summary?.jobs || {};
   const sessionSummary = runtime.summary?.sessions || {};
   const callbackSummary = runtime.summary?.callbacks || {};
+  const callbackChainSummary = runtime.summary?.callbackChain || {};
   const faultSummary = runtime.summary?.faults || {};
+  const evidenceSummary = runtime.summary?.evidence || {};
   const degradedReads = (data.taskReadFaults?.length || 0) + (data.coding?.faults?.length || 0);
   return [
     { label: "Workers", value: `${countAlive(data.members || [])}/${(data.members || []).length}`, meta: "alive / total", color: "var(--accent-2)" },
     { label: "Tasks", value: data.taskSummary?.total || 0, meta: `pending ${data.taskSummary?.pending || 0} / in progress ${data.taskSummary?.in_progress || 0}`, color: "var(--accent)" },
     { label: "Active Jobs", value: jobSummary.active || 0, meta: `queued ${jobSummary.queued || 0} / running ${jobSummary.running || 0}`, color: "var(--blue)" },
     { label: "Sessions", value: sessionSummary.total || 0, meta: `ephemeral ${sessionSummary.ephemeral || 0} / attached ${sessionSummary.attached || 0}`, color: "var(--accent)" },
-    { label: "Callbacks", value: callbackSummary.total || 0, meta: `reported ${callbackSummary.reported || 0} / escalated ${callbackSummary.escalated || 0}`, color: "var(--green)" },
+    { label: "Callbacks", value: callbackSummary.total || 0, meta: `pending ${callbackChainSummary.workerPending || 0} / waiting_aggregate ${callbackChainSummary.waitingAggregate || 0} / reported_upward ${callbackChainSummary.reportedUpward || 0}`, color: "var(--green)" },
     { label: "Faults", value: faultSummary.total || 0, meta: `runtime ${faultSummary.total || 0} / degraded reads ${degradedReads}`, color: (faultSummary.total || degradedReads) ? "var(--red)" : "var(--green)" },
+    { label: "Evidence", value: evidenceSummary.total || 0, meta: `truncated ${evidenceSummary.truncated || 0} / unavailable ${evidenceSummary.unavailable || 0}`, color: "var(--accent-2)" },
   ];
 }
 
@@ -626,6 +646,7 @@ function faultScopeLabel(fault) {
 }
 
 function buildFaultSurfaces(data) {
+  const provenance = data.runtimeConsole?.faultProvenanceSummary || {};
   return [
     {
       key: "task-read-faults",
@@ -645,7 +666,7 @@ function buildFaultSurfaces(data) {
       key: "runtime-faults",
       title: "Runtime Faults",
       tone: "critical",
-      subtitle: "Runtime console faults are explicit operational records, not inferred success or hidden degradation.",
+      subtitle: `Runtime console faults are explicit operational records. provenance: hook ${provenance.hook || 0} / watchdog ${provenance.watchdog || 0} / self-report ${provenance.selfReport || 0} / read-fault ${provenance.readFault || 0}.`,
       faults: data.runtimeConsole?.faults || [],
     },
   ].filter(surface => surface.faults.length);
@@ -702,10 +723,69 @@ function FaultSurfacesPanel({ data }) {
   );
 }
 
+function CallbackFlowPanel({ data, selected, onSelect, query }) {
+  const chain = data.runtimeConsole?.callbackChain || {};
+  const workers = (chain.workers || []).filter(item => matchesSearch(item, query));
+  const team = chain.team || null;
+  return (
+    <Panel title="Callback Flow" subtitle="worker -> team_leader and team_leader -> main_leader closure" badge={workers.length}>
+      <div className="subsection">
+        <div className="subsection-head"><span>Worker Callbacks</span><span>{workers.length}</span></div>
+        <div className="list" style={{ padding: 0, maxHeight: 280 }}>
+          {workers.length === 0 ? <div className="empty">No worker callback chain rows.</div> : workers.map(row => (
+            <div
+              key={row.workerName}
+              className={selectableClass(selected, "callback", `chain-worker:${row.workerName}`)}
+              onClick={() => onSelect("callback", `chain-worker:${row.workerName}`, row)}
+              style={{ margin: "0 0 10px" }}
+            >
+              <div className="row-top">
+                <strong>{row.workerName} -> team_leader</strong>
+                <Tone kind={row.callbackState}>{row.callbackState}</Tone>
+              </div>
+              <div className="pill-row">
+                <Tone kind={row.health || "healthy"}>{row.health || "healthy"}</Tone>
+                <Tone kind={row.progressState || "idle"}>{row.progressState || "idle"}</Tone>
+                {row.faultProvenance ? <Tone kind={row.faultProvenance}>{row.faultProvenance}</Tone> : null}
+              </div>
+              <div className="summary">
+                task={safe(row.taskId, "-")} job={safe(row.jobId, "-")}<br />
+                waiting={safe(row.waitingFor, "none")} reportedAt={safe(row.reportedAt, "-")}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="subsection">
+        <div className="subsection-head"><span>Team Callback</span><span>{team ? "1" : "0"}</span></div>
+        {!team ? <div className="empty">No team callback state persisted yet.</div> : (
+          <div
+            className={selectableClass(selected, "callback", "chain-team")}
+            onClick={() => onSelect("callback", "chain-team", team)}
+          >
+            <div className="row-top">
+              <strong>team_leader -> main_leader</strong>
+              <Tone kind={team.callbackState}>{team.callbackState}</Tone>
+            </div>
+            <div className="pill-row">
+              <Tone kind={team.callbackState || "not_started"}>{team.callbackState || "not_started"}</Tone>
+              {team.reportedUpward ? <Tone kind="reported_upward">reported_upward</Tone> : null}
+            </div>
+            <div className="summary">
+              workers done={team.workersReported || 0}/{team.workersTotal || 0} pending={team.workersPending || 0} faulted={team.workersFaulted || 0}<br />
+              source={safe(team.source, "durable_inference")} reportedAt={safe(team.reportedAt, "-")}
+            </div>
+          </div>
+        )}
+      </div>
+    </Panel>
+  );
+}
+
 function WorkersPanel({ data, selected, onSelect, query }) {
   const workers = (data.runtimeConsole?.workers || []).filter(worker => matchesSearch(worker, query));
   return (
-    <Panel title="Workers" subtitle="Agent runtime mapped to current task/job/session" badge={workers.length}>
+    <Panel title="Workers" subtitle="alive/processState/health/progress/callback are explicit and distinct" badge={workers.length}>
       <div className="list">
         {workers.length === 0 ? <div className="empty">No workers discovered.</div> : workers.map(worker => (
           <div
@@ -715,16 +795,21 @@ function WorkersPanel({ data, selected, onSelect, query }) {
           >
             <div className="row-top">
               <strong>{worker.name}</strong>
-              <Tone kind={worker.alive === false ? "failed" : "completed"}>{worker.alive === false ? "stale" : "alive"}</Tone>
+              <Tone kind={worker.processState || (worker.alive === false ? "ended" : "alive")}>{worker.processState || (worker.alive === false ? "ended" : "alive")}</Tone>
             </div>
             <div className="pill-row">
+              <Tone kind={worker.health || "healthy"}>{worker.health || "healthy"}</Tone>
+              <Tone kind={worker.progressState || "idle"}>{worker.progressState || "idle"}</Tone>
+              <Tone kind={worker.callbackState || "not_started"}>{worker.callbackState || "not_started"}</Tone>
               <Tone kind={worker.sessionMode || "ephemeral"}>{safe(worker.sessionMode, "ephemeral")}</Tone>
               {worker.callbackPending ? <Tone kind="callback_pending">callback pending</Tone> : null}
+              {worker.faultProvenance ? <Tone kind={worker.faultProvenance}>{worker.faultProvenance}</Tone> : null}
             </div>
             <div className="summary">
               task={safe(worker.currentTaskId, "-")}<br />
               job={safe(worker.currentJobId, "-")}<br />
-              session={safe(worker.currentSessionId, "unavailable")}
+              session={safe(worker.currentSessionId, "unavailable")}<br />
+              faultCount={worker.faultCount || 0} waitingFor={safe(worker.waitingFor, "none")}
             </div>
           </div>
         ))}
@@ -885,11 +970,55 @@ function RuntimePanel({ data, selected, onSelect, query }) {
               </div>
               <div className="summary">
                 {fault.scopeType ? `${fault.scopeType}:${fault.scopeId}` : fault.recordKind}<br />
+                provenance={safe(fault.provenance, "runtime")} escalation={safe(fault.escalationStatus, "not_reported")}<br />
                 {fault.message}
               </div>
             </div>
           )) : <div className="empty">No runtime faults recorded.</div>}
         </div>
+      </div>
+    </Panel>
+  );
+}
+
+function EvidencePanel({ data, selected, onSelect, query }) {
+  const evidence = (data.runtimeConsole?.evidence?.records || []).filter(item => matchesSearch(item, query));
+  const summary = data.runtimeConsole?.evidence?.summary || {};
+  return (
+    <Panel
+      title="Bounded Evidence View"
+      subtitle="Live Evidence / Snapshot Evidence are bounded views, not guaranteed historical snapshots"
+      badge={`${summary.total || evidence.length} total`}
+    >
+      <div className="subsection">
+        <div className="subsection-head"><span>Authority Notice</span><span>non-authoritative</span></div>
+        <div className="summary">
+          {data.runtimeConsole?.evidence?.authorityNotice || "Evidence is non-authoritative. Durable state remains source of truth."}
+        </div>
+      </div>
+      <div className="list" style={{ maxHeight: 280 }}>
+        {evidence.length === 0 ? <div className="empty">No bounded evidence records currently available.</div> : evidence.map(item => (
+          <div
+            key={item.evidenceId}
+            className={selectableClass(selected, "evidence", item.evidenceId)}
+            onClick={() => onSelect("evidence", item.evidenceId, item)}
+          >
+            <div className="row-top">
+              <strong>{item.evidenceType}</strong>
+              <Tone kind={item.truncated ? "warning" : "completed"}>{item.truncated ? "truncated" : "bounded"}</Tone>
+            </div>
+            <div className="pill-row">
+              <Tone kind="ephemeral">{safe(item.sourceType, "source")}</Tone>
+              <Tone kind={item.captureMode === "persisted" ? "completed" : "warning"}>{item.captureMode || "collector_derived"}</Tone>
+              {item.unavailableReason ? <Tone kind="read-fault">{item.unavailableReason}</Tone> : null}
+            </div>
+            <div className="summary">
+              id={item.evidenceId}<br />
+              source={safe(item.sourceType, "-")}:{safe(item.sourceId, "-")} worker={safe(item.workerName, "-")}<br />
+              captured={safe(item.capturedAt, "-")}
+            </div>
+          </div>
+        ))}
       </div>
     </Panel>
   );
@@ -950,10 +1079,12 @@ function TimelinePanel({ data, selected, onSelect, query }) {
 
 function buildTabs(selected) {
   if (!selected) return ["Summary", "Raw JSON"];
-  const base = ["Summary", "Timeline", "Artifacts", "Workspace", "Raw JSON"];
-  if (selected.type === "job") return ["Summary", "Result", "Callback", "Artifacts", "Workspace", "stdout", "stderr", "Timeline", "Raw JSON"];
-  if (selected.type === "session") return ["Summary", "Session Info", "Bound Jobs", "Resume Info", "Timeline", "Raw JSON"];
-  if (selected.type === "task") return ["Summary", "Dependencies", "Latest Coding", "Leader Decisions", "Timeline", "Raw JSON"];
+  const base = ["Summary", "Links", "Status", "Artifacts", "Evidence", "Related Timeline", "Raw JSON"];
+  if (selected.type === "job") return ["Summary", "Links", "Status", "Result", "Callback", "Artifacts", "Evidence", "Workspace", "stdout", "stderr", "Related Timeline", "Raw JSON"];
+  if (selected.type === "session") return ["Summary", "Links", "Status", "Session Info", "Bound Jobs", "Resume Info", "Evidence", "Related Timeline", "Raw JSON"];
+  if (selected.type === "task") return ["Summary", "Links", "Status", "Dependencies", "Latest Coding", "Leader Decisions", "Evidence", "Related Timeline", "Raw JSON"];
+  if (selected.type === "callback") return ["Summary", "Links", "Status", "Evidence", "Related Timeline", "Raw JSON"];
+  if (selected.type === "evidence") return ["Summary", "Status", "Evidence", "Related Timeline", "Raw JSON"];
   return base;
 }
 
@@ -965,6 +1096,14 @@ function relationTimeline(data, selected) {
   if (selected.type === "task") return events.filter(event => event.links?.taskId === selected.id || event.scopeId === selected.id);
   if (selected.type === "fault") return events.filter(event => event.scopeId === selected.id || event.links?.faultId === selected.id);
   if (selected.type === "worker") return events.filter(event => event.actorId === selected.id);
+  if (selected.type === "callback") {
+    const jobId = selected.data?.jobId;
+    return events.filter(event => event.scopeType === "callback" || (jobId && event.links?.jobId === jobId));
+  }
+  if (selected.type === "evidence") {
+    const sourceId = selected.data?.sourceId;
+    return events.filter(event => event.scopeId === sourceId || event.links?.jobId === sourceId || event.links?.faultId === sourceId);
+  }
   return events.filter(event => event.eventId === selected.id);
 }
 
@@ -975,7 +1114,7 @@ function relatedArtifacts(selected) {
 }
 
 function DrawerEmpty() {
-  return <div className="empty">Select a worker, task, job, session, fault, or event to inspect runtime details.</div>;
+  return <div className="empty">Select a worker, callback, task, job, session, fault, evidence record, or event to inspect runtime details.</div>;
 }
 
 function KeyValue({ label, value }) {
@@ -1016,9 +1155,11 @@ function DetailDrawer({ data, selected }) {
   const tabs = buildTabs(selected);
   const [activeTab, setActiveTab] = useState(tabs[0]);
   const [artifactPreview, setArtifactPreview] = useState({ status: "idle", payload: null, error: "" });
+  const [evidenceDetail, setEvidenceDetail] = useState({ status: "idle", payload: null, error: "" });
   const relatedEvents = relationTimeline(data, selected);
   const callbacks = data.runtimeConsole?.callbacks || [];
   const jobs = data.runtimeConsole?.jobs || [];
+  const evidenceRecords = data.runtimeConsole?.evidence?.records || [];
   const sessionJobs = selected?.type === "session"
     ? jobs.filter(job => job.providerSessionRef === selected.id)
     : [];
@@ -1064,6 +1205,34 @@ function DetailDrawer({ data, selected }) {
       });
     return () => { cancelled = true; };
   }, [activeTab, data.team.name, selected?.data?.jobId, selected?.id, selected?.type, stdoutArtifactKey, stderrArtifactKey]);
+
+  useEffect(() => {
+    if (selected?.type !== "evidence") {
+      setEvidenceDetail({ status: "idle", payload: null, error: "" });
+      return;
+    }
+    let cancelled = false;
+    setEvidenceDetail({ status: "loading", payload: null, error: "" });
+    fetch(evidenceDetailRoute(data.team.name, selected.id))
+      .then(async response => {
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.error || `Evidence request failed with status ${response.status}`);
+        }
+        return payload;
+      })
+      .then(payload => {
+        if (!cancelled) {
+          setEvidenceDetail({ status: "loaded", payload, error: "" });
+        }
+      })
+      .catch(error => {
+        if (!cancelled) {
+          setEvidenceDetail({ status: "error", payload: null, error: String(error) });
+        }
+      });
+    return () => { cancelled = true; };
+  }, [data.team.name, selected?.id, selected?.type]);
 
   if (!selected) {
     return (
@@ -1129,10 +1298,43 @@ function DetailDrawer({ data, selected }) {
         <div className="kv-grid">
           <KeyValue label="Worker" value={selected.data.name} />
           <KeyValue label="Agent ID" value={selected.data.agentId} />
+          <KeyValue label="Process State" value={safe(selected.data.processState, selected.data.alive === false ? "ended" : "alive")} />
+          <KeyValue label="Health" value={safe(selected.data.health, "healthy")} />
+          <KeyValue label="Progress" value={safe(selected.data.progressState, "idle")} />
+          <KeyValue label="Callback State" value={safe(selected.data.callbackState, "not_started")} />
           <KeyValue label="Current Task" value={safe(selected.data.currentTaskId, "-")} />
           <KeyValue label="Current Job" value={safe(selected.data.currentJobId, "-")} />
           <KeyValue label="Current Session" value={safe(selected.data.currentSessionId, "unavailable")} />
           <KeyValue label="Session Mode" value={safe(selected.data.sessionMode, "unknown")} />
+        </div>
+      );
+    }
+    if (selected.type === "callback") {
+      return (
+        <div className="kv-grid">
+          <KeyValue label="From" value={safe(selected.data.from, "-")} />
+          <KeyValue label="To" value={safe(selected.data.to, "-")} />
+          <KeyValue label="Callback State" value={safe(selected.data.callbackState, "-")} />
+          <KeyValue label="Decision" value={safe(selected.data.decision, "-")} />
+          <KeyValue label="Task" value={safe(selected.data.taskId, "-")} />
+          <KeyValue label="Job" value={safe(selected.data.jobId, "-")} />
+          <KeyValue label="Waiting For" value={safe(selected.data.waitingFor, "-")} />
+          <KeyValue label="Reported At" value={safe(selected.data.reportedAt, "-")} />
+        </div>
+      );
+    }
+    if (selected.type === "evidence") {
+      const payload = evidenceDetail.payload || selected.data;
+      return (
+        <div className="kv-grid">
+          <KeyValue label="Evidence ID" value={safe(payload.evidenceId, selected.id)} />
+          <KeyValue label="Type" value={safe(payload.evidenceType, "-")} />
+          <KeyValue label="Source" value={`${safe(payload.sourceType, "-")}:${safe(payload.sourceId, "-")}`} />
+          <KeyValue label="Worker" value={safe(payload.workerName, "-")} />
+          <KeyValue label="Captured At" value={safe(payload.capturedAt, "-")} />
+          <KeyValue label="Truncated" value={payload.truncated ? "yes" : "no"} />
+          <KeyValue label="Authority" value={safe(payload.authority, "non_authoritative")} />
+          <KeyValue label="Unavailable Reason" value={safe(payload.unavailableReason, "-")} />
         </div>
       );
     }
@@ -1143,6 +1345,8 @@ function DetailDrawer({ data, selected }) {
           <KeyValue label="Severity" value={safe(selected.data.severity, "warning")} />
           <KeyValue label="Scope" value={selected.data.scopeType ? `${selected.data.scopeType}:${selected.data.scopeId}` : safe(selected.data.recordKind, "-")} />
           <KeyValue label="Status" value={safe(selected.data.status, "open")} />
+          <KeyValue label="Provenance" value={safe(selected.data.provenance, "runtime")} />
+          <KeyValue label="Escalation" value={safe(selected.data.escalationStatus, "not_reported")} />
         </div>
       );
     }
@@ -1151,10 +1355,34 @@ function DetailDrawer({ data, selected }) {
 
   function renderTab() {
     if (activeTab === "Summary") return summaryView();
-    if (activeTab === "Timeline") {
+    if (activeTab === "Related Timeline" || activeTab === "Timeline") {
       return relatedEvents.length ? (
         <pre className="raw">{JSON.stringify(relatedEvents, null, 2)}</pre>
       ) : <div className="empty">No related timeline events.</div>;
+    }
+    if (activeTab === "Links") {
+      const links = {
+        type: selected.type,
+        id: selected.id,
+        taskId: selected.data?.taskId,
+        jobId: selected.data?.jobId,
+        sessionId: selected.data?.sessionId || selected.data?.currentSessionId,
+        faultId: selected.data?.faultId || selected.data?.faultType,
+      };
+      return <pre className="raw">{JSON.stringify(links, null, 2)}</pre>;
+    }
+    if (activeTab === "Status") {
+      const statusPayload = {
+        processState: selected.data?.processState,
+        health: selected.data?.health,
+        progressState: selected.data?.progressState,
+        callbackState: selected.data?.callbackState,
+        state: selected.data?.state,
+        status: selected.data?.status,
+        severity: selected.data?.severity,
+        provenance: selected.data?.provenance,
+      };
+      return <pre className="raw">{JSON.stringify(statusPayload, null, 2)}</pre>;
     }
     if (activeTab === "Artifacts") {
       return artifacts.length ? (
@@ -1162,6 +1390,30 @@ function DetailDrawer({ data, selected }) {
           {artifacts.map(artifact => <KeyValue key={artifact.name} label={artifact.name} value={artifact.path} />)}
         </div>
       ) : <div className="empty">No artifact paths persisted for this object.</div>;
+    }
+    if (activeTab === "Evidence") {
+      if (selected.type === "evidence") {
+        if (evidenceDetail.status === "loading") return <div className="empty">Loading evidence detail…</div>;
+        if (evidenceDetail.status === "error") return <div className="empty">Evidence detail failed: {evidenceDetail.error}</div>;
+        const payload = evidenceDetail.payload || selected.data;
+        return payload?.excerpt ? (
+          <>
+            <div className="empty">Evidence is non-authoritative; use it as bounded operator evidence only.</div>
+            <pre className="raw">{payload.excerpt}</pre>
+          </>
+        ) : <div className="empty">No evidence excerpt available.</div>;
+      }
+      const linkedEvidence = evidenceRecords.filter(item => {
+        if (selected.type === "job") return item.jobId === selected.id || item.sourceId === selected.id;
+        if (selected.type === "task") return item.taskId === selected.id;
+        if (selected.type === "fault") return item.faultId === selected.id || item.sourceId === selected.id;
+        if (selected.type === "worker") return item.workerName === selected.id || item.workerName === selected.data?.name;
+        if (selected.type === "callback") return item.callbackJobId === selected.data?.jobId || item.sourceId === selected.data?.jobId;
+        return false;
+      });
+      return linkedEvidence.length
+        ? <pre className="raw">{JSON.stringify(linkedEvidence, null, 2)}</pre>
+        : <div className="empty">No linked evidence records for this object.</div>;
     }
     if (activeTab === "Workspace") {
       if (selected.type === "job") {
@@ -1278,12 +1530,12 @@ function Dashboard({ data, selected, onSelect, query, lastRefresh }) {
     <div className="shell">
       <section className="hero">
         <div className="hero-panel">
-          <div className="hero-label">Runtime Console</div>
+          <div className="hero-label">Callback Operator Board</div>
           <h2 className="hero-title">{data.team.name}</h2>
           <div className="hero-meta">
             leader={safe(data.team.leaderName, "unknown")}<br />
             {data.team.description || "No team description was persisted."}<br />
-            workers, tasks, coding jobs, provider sessions, callbacks, faults, and timeline are rendered from durable state.
+            workers, tasks, coding jobs, provider sessions, callback chain, fault provenance, timeline, and bounded evidence are rendered from durable state.
           </div>
         </div>
         <div className="hero-panel truth-box">
@@ -1294,7 +1546,7 @@ function Dashboard({ data, selected, onSelect, query, lastRefresh }) {
             Unknown session identity is explicit: <strong>providerSessionId = unavailable</strong>, <strong>sessionMode = ephemeral</strong>, <strong>resumeSupported = no</strong>.
           </div>
           <div className="truth-line">
-            Current payload includes {data.runtimeConsole?.timeline?.length || 0} timeline events, {data.runtimeConsole?.faults?.length || 0} runtime faults, {data.coding?.faults?.length || 0} coding read faults, and {data.taskReadFaults?.length || 0} task read faults.
+            Current payload includes callback pending {data.runtimeConsole?.summary?.callbackChain?.workerPending || 0}, waiting_aggregate {data.runtimeConsole?.summary?.callbackChain?.waitingAggregate || 0}, reported_upward {data.runtimeConsole?.summary?.callbackChain?.reportedUpward || 0}, and evidence records {data.runtimeConsole?.summary?.evidence?.total || 0}.
           </div>
           <div className="truth-line">
             Last refresh: {lastRefresh || "--"} | Search filter: {query ? `"${query}"` : "none"}
@@ -1316,11 +1568,13 @@ function Dashboard({ data, selected, onSelect, query, lastRefresh }) {
 
       <section className="dashboard">
         <div className="main-column">
+          <CallbackFlowPanel data={data} selected={selected} onSelect={onSelect} query={query} />
           <div className="panel-grid">
             <WorkersPanel data={data} selected={selected} onSelect={onSelect} query={query} />
             <TasksPanel data={data} selected={selected} onSelect={onSelect} query={query} />
             <RuntimePanel data={data} selected={selected} onSelect={onSelect} query={query} />
           </div>
+          <EvidencePanel data={data} selected={selected} onSelect={onSelect} query={query} />
           <TimelinePanel data={data} selected={selected} onSelect={onSelect} query={query} />
         </div>
         <DetailDrawer data={data} selected={selected} />
@@ -1425,10 +1679,10 @@ function App() {
         <div className="shell">
           <section className="hero">
             <div className="hero-panel">
-              <div className="hero-label">Runtime Console</div>
+              <div className="hero-label">Callback Operator Board</div>
               <h2 className="hero-title">Select a team</h2>
               <div className="hero-meta">
-                {errorMessage || "The Web board consumes the same durable state that powers CLI inspection. Choose a team to render workers, tasks, jobs, provider sessions, callbacks, faults, timeline, and the detail drawer."}
+                {errorMessage || "The Web board consumes the same durable state that powers CLI inspection. Choose a team to render callback flow, worker health/progress states, fault provenance, bounded evidence view, timeline, and the detail drawer."}
               </div>
             </div>
             <div className="hero-panel truth-box">

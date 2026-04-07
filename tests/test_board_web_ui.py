@@ -6,8 +6,21 @@ from pathlib import Path
 def test_runtime_console_web_board_static_shell_includes_operator_sections():
     html = Path("clawteam/board/static/index.html").read_text(encoding="utf-8")
 
-    assert "Runtime Console" in html
+    assert "Callback Operator Board" in html
+    assert "Callback Flow" in html
+    assert "worker -> team_leader" in html
+    assert "team_leader -> main_leader" in html
+    assert "waiting_aggregate" in html
+    assert "reported_upward" in html
     assert "Fault Surfaces" in html
+    assert "hook" in html
+    assert "watchdog" in html
+    assert "self-report" in html
+    assert "read-fault" in html
+    assert "Bounded Evidence View" in html
+    assert "collector_derived" in html
+    assert "bounded views, not guaranteed historical snapshots" in html
+    assert "non-authoritative" in html
     assert "Task Read Faults" in html
     assert "Coding Read Faults" in html
     assert "Healthy records continue to render; unreadable or corrupted records remain explicit." in html
@@ -20,6 +33,7 @@ def test_runtime_console_web_board_static_shell_includes_operator_sections():
     assert "source of truth" in html
     assert "/runtime_console_helpers.js" in html
     assert "artifactPreviewRoute" in html
+    assert "evidenceDetailRoute" in html
     assert "Loading stdout preview" in html
 
 

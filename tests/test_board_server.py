@@ -147,8 +147,35 @@ def test_board_server_exposes_runtime_console_api(monkeypatch, tmp_path):
         payload = _get_json(base_url, "/api/teams/demo/callbacks")
         assert payload["callbacks"][0]["jobId"] == completed.job_id
 
+        payload = _get_json(base_url, "/api/teams/demo/callback-chain")
+        assert payload["callbackChain"]["workers"][0]["to"] == "team_leader"
+        assert payload["callbackChain"]["team"]["to"] == "main_leader"
+        assert payload["callbackChain"]["workers"][0]["callbackState"] == "reported"
+
         payload = _get_json(base_url, "/api/teams/demo/faults")
         assert payload["faults"][0]["faultId"] == "fault-board-1"
+
+        payload = _get_json(base_url, "/api/teams/demo/escalations")
+        assert "summary" in payload
+
+        payload = _get_json(base_url, "/api/teams/demo/evidence")
+        assert payload["nonAuthoritative"] is True
+        assert payload["summary"]["total"] >= 1
+        evidence_id = payload["records"][0]["evidenceId"]
+
+        payload = _get_json(base_url, f"/api/teams/demo/evidence/{evidence_id}")
+        assert payload["evidenceId"] == evidence_id
+        assert payload["nonAuthoritative"] is True
+
+        payload = _get_json(base_url, "/api/teams/demo/workers/worker1/evidence")
+        assert payload["workerName"] == "worker1"
+        assert payload["nonAuthoritative"] is True
+
+        payload = _get_json(base_url, "/api/teams/demo/workers/worker1/callbacks")
+        assert payload["callbacks"][0]["workerName"] == "worker1"
+
+        payload = _get_json(base_url, "/api/teams/demo/workers/worker1/faults")
+        assert payload["workerName"] == "worker1"
 
         payload = _get_json(base_url, "/api/teams/demo/timeline")
         assert any(event["eventType"] == "callback_reported" for event in payload["events"])

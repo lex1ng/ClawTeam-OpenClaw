@@ -47,6 +47,19 @@ class CallbackStatusValue(str, Enum):
     closed = "closed"
 
 
+class CallbackLevel(str, Enum):
+    worker = "worker"
+    team = "team"
+
+
+class CallbackProvenance(str, Enum):
+    self_report = "self-report"
+    hook = "hook"
+    watchdog = "watchdog"
+    read_fault = "read-fault"
+    runtime = "runtime"
+
+
 class RuntimeFaultSeverity(str, Enum):
     info = "info"
     warning = "warning"
@@ -107,6 +120,14 @@ class RuntimeTimelineActorType(str, Enum):
     runtime = "runtime"
 
 
+class RuntimeEvidenceType(str, Enum):
+    tmux_live_tail = "tmux_live_tail"
+    tmux_snapshot = "tmux_snapshot"
+    openclaw_session_excerpt = "openclaw_session_excerpt"
+    coding_artifact_preview = "coding_artifact_preview"
+    hook_payload_excerpt = "hook_payload_excerpt"
+
+
 class ProviderSessionRecord(BaseModel):
     """Durable record for provider-side execution context."""
 
@@ -161,6 +182,11 @@ class CallbackReportRecord(BaseModel):
     provider: str
     status: str
     decision: str
+    callback_level: CallbackLevel = Field(default=CallbackLevel.worker, alias="callbackLevel")
+    upward_target: str = Field(default="team_leader", alias="upwardTarget")
+    chain_status: str | None = Field(default=None, alias="chainStatus")
+    provenance: CallbackProvenance = Field(default=CallbackProvenance.self_report)
+    reported_upward: bool = Field(default=False, alias="reportedUpward")
     summary: str
     next_step: str = Field(default="", alias="nextStep")
     escalation_reason: str | None = Field(default=None, alias="escalationReason")
@@ -184,6 +210,10 @@ class RuntimeFaultRecord(BaseModel):
     detail: str = ""
     detected_at: str = Field(default_factory=_now_iso, alias="detectedAt")
     status: RuntimeFaultStatus = RuntimeFaultStatus.open
+    provenance: CallbackProvenance = CallbackProvenance.runtime
+    reported_upward: bool = Field(default=False, alias="reportedUpward")
+    escalation_target: str | None = Field(default=None, alias="escalationTarget")
+    escalation_status: str | None = Field(default=None, alias="escalationStatus")
     suggested_action: str = Field(default="", alias="suggestedAction")
     artifact_paths: dict[str, str] = Field(default_factory=dict, alias="artifactPaths")
 
@@ -205,3 +235,34 @@ class RuntimeTimelineEvent(BaseModel):
     summary: str
     details: dict[str, Any] = Field(default_factory=dict)
     links: dict[str, str] = Field(default_factory=dict)
+
+
+class RuntimeEvidenceRecord(BaseModel):
+    """Bounded, non-authoritative durable evidence snapshot."""
+
+    model_config = {"populate_by_name": True}
+
+    schema_version: int = Field(default=RUNTIME_CONSOLE_SCHEMA_VERSION, alias="schemaVersion", ge=1)
+    evidence_id: str = Field(alias="evidenceId")
+    team_name: str = Field(alias="teamName")
+    evidence_type: RuntimeEvidenceType = Field(alias="evidenceType")
+    source_type: str = Field(alias="sourceType")
+    source_id: str = Field(alias="sourceId")
+    worker_name: str | None = Field(default=None, alias="workerName")
+    task_id: str | None = Field(default=None, alias="taskId")
+    job_id: str | None = Field(default=None, alias="jobId")
+    session_id: str | None = Field(default=None, alias="sessionId")
+    fault_id: str | None = Field(default=None, alias="faultId")
+    callback_job_id: str | None = Field(default=None, alias="callbackJobId")
+    captured_at: str = Field(default_factory=_now_iso, alias="capturedAt")
+    updated_at: str = Field(default_factory=_now_iso, alias="updatedAt")
+    authority: str = "non_authoritative"
+    label: str = ""
+    path: str | None = None
+    excerpt: str = ""
+    excerpt_bytes: int = Field(default=0, alias="excerptBytes", ge=0)
+    max_chars: int = Field(default=0, alias="maxChars", ge=0)
+    truncated: bool = False
+    redacted: bool = False
+    unavailable_reason: str | None = Field(default=None, alias="unavailableReason")
+    metadata: dict[str, Any] = Field(default_factory=dict)

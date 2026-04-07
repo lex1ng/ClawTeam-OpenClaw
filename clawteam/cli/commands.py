@@ -2994,6 +2994,67 @@ board_app = typer.Typer(help="Team dashboard and kanban board.")
 app.add_typer(board_app, name="board")
 
 
+def _board_callback_chain_human(data: dict) -> None:
+    chain = data.get("callbackChain", {})
+    workers = chain.get("workers", [])
+    team_row = chain.get("team", {})
+    table = Table(title=f"Callback Chain ({data['teamName']})")
+    table.add_column("From", style="cyan")
+    table.add_column("To")
+    table.add_column("State")
+    table.add_column("Health")
+    table.add_column("Progress")
+    table.add_column("Waiting")
+    table.add_column("Fault")
+    table.add_column("Reported", style="dim")
+    for row in workers:
+        table.add_row(
+            row.get("from", "-"),
+            row.get("to", "-"),
+            row.get("callbackState", "-"),
+            row.get("health", "-"),
+            row.get("progressState", "-"),
+            row.get("waitingFor", "-"),
+            row.get("faultProvenance", "-"),
+            row.get("reportedAt", "-") or "-",
+        )
+    if team_row:
+        table.add_row(
+            team_row.get("from", "team_leader"),
+            team_row.get("to", "main_leader"),
+            team_row.get("callbackState", "-"),
+            "-",
+            "aggregating" if team_row.get("callbackState") == "waiting_aggregate" else "-",
+            f"workers {team_row.get('workersReported', 0)}/{team_row.get('workersTotal', 0)}",
+            "-",
+            team_row.get("reportedAt", "-") or "-",
+        )
+    console.print(table)
+
+
+def _board_evidence_human(data: dict) -> None:
+    table = Table(title=f"Evidence ({data['teamName']})")
+    table.add_column("ID", style="cyan")
+    table.add_column("Type")
+    table.add_column("Source")
+    table.add_column("Worker")
+    table.add_column("Trunc")
+    table.add_column("Captured", style="dim")
+    for record in data.get("records", []):
+        table.add_row(
+            record.get("evidenceId", "-"),
+            record.get("evidenceType", "-"),
+            f"{record.get('sourceType', '-')}/{record.get('sourceId', '-')}",
+            record.get("workerName") or "-",
+            "yes" if record.get("truncated") else "no",
+            record.get("capturedAt") or "-",
+        )
+    console.print(table)
+    if data.get("readFaults"):
+        _print_read_faults({"readFaults": data["readFaults"]})
+    console.print("[dim]Evidence is non-authoritative; durable state remains the source of truth.[/dim]")
+
+
 @board_app.command("show")
 def board_show(
     team: str = typer.Argument(..., help="Team name"),
@@ -3010,6 +3071,39 @@ def board_show(
         raise typer.Exit(1)
 
     _output(data, lambda d: BoardRenderer(console).render_team_board(d))
+
+
+@board_app.command("callback-chain")
+def board_callback_chain(
+    team: str = typer.Argument(..., help="Team name"),
+):
+    """Show worker->team and team->main callback chain state from durable data."""
+    from clawteam.board.collector import BoardCollector
+
+    collector = BoardCollector()
+    try:
+        data = collector.collect_callback_chain(team)
+    except ValueError as e:
+        _output({"error": str(e)}, lambda d: console.print(f"[red]{d['error']}[/red]"))
+        raise typer.Exit(1)
+    _output(data, _board_callback_chain_human)
+
+
+@board_app.command("evidence")
+def board_evidence(
+    team: str = typer.Argument(..., help="Team name"),
+    worker: Optional[str] = typer.Option(None, "--worker", help="Filter evidence by worker name"),
+):
+    """Show bounded, non-authoritative runtime evidence records."""
+    from clawteam.board.collector import BoardCollector
+
+    collector = BoardCollector()
+    try:
+        data = collector.collect_worker_evidence(team, worker) if worker else collector.collect_evidence(team)
+    except ValueError as e:
+        _output({"error": str(e)}, lambda d: console.print(f"[red]{d['error']}[/red]"))
+        raise typer.Exit(1)
+    _output(data, _board_evidence_human)
 
 
 @board_app.command("overview")
